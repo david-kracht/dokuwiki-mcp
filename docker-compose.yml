@@ -24,35 +24,28 @@ services:
     container_name: dokuwiki_mcp
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
-      - MCP_TRANSPORT=sse
-      - HOST=0.0.0.0
       - DOKUWIKI_URL=http://dokuwiki
-      - DOKUWIKI_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkb2t1d2lraSIsInN1YiI6Im1jcC1yZWFkIiwiaWF0IjoxNzc1OTQzMTk5fQ==.rBdJZeCuNIUQrVjHv7p14aogj0aSWDwWjftweYIiRZY=   #read
-      #- DOKUWIKI_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkb2t1d2lraSIsInN1YiI6Im1jcC13cml0ZSIsImlhdCI6MTc3NTk0MzU1NH0=.hhQNhX96m2ZTEAg31mMZYNmiv/UDUQEva1WpE1puZbw=   #write
-    depends_on:
-      - dokuwiki
+      # write token:
+      #- DOKUWIKI_TOKEN=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkb2t1d2lraSIsInN1YiI6Im1jcC13cml0ZSIsImlhdCI6MTc3NTk0MzU1NH0=.hhQNhX96m2ZTEAg31mMZYNmiv/UDUQEva1WpE1puZbw=
     restart: unless-stopped
 
   # 3. Der Web Inspector (UI zum Debuggen)
-  # Nutzt die absolut krisensichere STDIO-Methode.
-  # mcp-inspector:
-  #   build:
-  #     context: .
-  #     dockerfile: docker/Dockerfile
-  #   container_name: dokuwiki_mcp_inspector
-  #   ports:
-  #     - "6274:6274"
-  #     - "6277:6277"
-  #   environment:
-  #     - MCP_TRANSPORT=stdio
-  #     - HOST=${MCP_HOST:-0.0.0.0}
-  #     - DOKUWIKI_URL=${DOKUWIKI_URL:-http://dokuwiki}
-  #     - DOKUWIKI_TOKEN=${DOKUWIKI_TOKEN}
-  #   command: ["npx", "-y", "@modelcontextprotocol/inspector", "python", "-m", "src.dokuwiki_mcp.server"]
-  #   depends_on:
-  #     - dokuwiki
-  #   restart: unless-stopped
+  mcp-inspector:
+    image: node:20-slim
+    container_name: mcp_inspector
+    ports:
+      - "6274:6274"
+      - "6277:6277"
+    env_file:
+      - .env
+    environment:
+      - DANGEROUSLY_OMIT_AUTH=true
+    command: >
+      npx -y @modelcontextprotocol/inspector
+    restart: unless-stopped
 
 volumes:
   dokuwiki-data:
