@@ -138,10 +138,10 @@ def _build_return_section(func) -> str:
     signature = inspect.signature(func)
     success_text, error_text = _split_return_annotation(signature.return_annotation)
     lines = [
-        f"- success: {success_text}",
-        f"- error: {error_text} (code, message)",
+        f"{success_text} (success)",
+        f"{error_text} (error)",
     ]
-    return "Returns:\n" + "\n".join(lines)
+    return "Returns: " + " or ".join(lines)
 
 
 def common_context(func):
