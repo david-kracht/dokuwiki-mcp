@@ -139,8 +139,14 @@ class DokuWikiClient:
         self.user = username or self.settings.dokuwiki_user
         self.pwd = password or self.settings.dokuwiki_password
         self.token = token or self.settings.dokuwiki_token
-        self.auth = (self.user, self.pwd) if self.user and self.pwd else None
-        self.headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        
+        # Token has priority over username/password
+        if self.token:
+            self.auth = None
+            self.headers = {"Authorization": f"Bearer {self.token}"}
+        else:
+            self.auth = (self.user, self.pwd) if self.user and self.pwd else None
+            self.headers = {}
 
     async def _rpc_call(self, method: str, params: Dict[str, Any], response_model: Any = None) -> Tuple[Any, Optional[RPCError]]:
         base_url = self.settings.dokuwiki_url.rstrip("/")

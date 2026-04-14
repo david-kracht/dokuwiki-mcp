@@ -34,7 +34,7 @@ services:
 
   # 3. Der Web Inspector (UI zum Debuggen)
   mcp-inspector:
-    image: node:20-slim
+    image: node:18-slim
     container_name: mcp_inspector
     ports:
       - "6274:6274"

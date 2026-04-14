@@ -7,7 +7,7 @@ Design contract for agents and tooling:
 - Parameters and return values are passed through transparently from the client.
 - Errors are returned as `RPCError` objects.
 """
-
+import difflib
 import base64
 import inspect
 import logging
@@ -46,8 +46,9 @@ mcp = FastMCP("DokuWiki")
 
 # Dies ist der globale Scope, den das LLM bei JEDEM Tool sehen wird.
 COMMON_CONTEXT = """
-Global MCP Server Context: Wiki, DokuWiki, Knowledge, Projects, Stations, Documentation
+MCP Domain:Wiki,DokuWiki.
 """
+# Knowledge, Projects, Stations, Documentation
 # Internal knowledge, Project documentation, Product documentation, Manuals, Guides,
 # How-tos, Troubleshooting, Technical details, Instructions, Installation, Configuration,
 # Customer support, Internal tools, Internal processes, Internal documents
@@ -55,28 +56,28 @@ Global MCP Server Context: Wiki, DokuWiki, Knowledge, Projects, Stations, Docume
 COMMON_CONTEXT = ' '.join(COMMON_CONTEXT.split())
 
 PARAM_IMPACT_HINTS = {
-    "page": "Defines the target wiki page; changing it switches the page whose data is read, validated, or modified.",
-    "media": "Defines the target media ID/path; changing it switches the binary asset affected by the call.",
-    "text": "Provides raw DokuWiki markup payload; directly determines appended or saved page content.",
-    "summary": "Sets the edit summary stored in revision metadata; does not change page body content.",
-    "isminor": "Flags the edit as minor/non-minor; influences revision metadata and client-side change interpretation.",
-    "user": "Overrides the user context for ACL evaluation (if supported by server permissions).",
-    "groups": "Provides group context for ACL simulation; affects computed permission level.",
-    "rev": "Selects a historical revision timestamp; 0 means the latest/current revision.",
-    "first": "Offsets history pagination by skipping the newest entries before returning results.",
-    "author": "Requests inclusion of author metadata when available in info responses.",
-    "hash": "Requests inclusion of MD5 content hash when available in info/list responses.",
-    "timestamp": "Filters change feeds to entries newer than the given Unix timestamp.",
-    "namespace": "Scopes listing operations to a namespace subtree; empty string means root.",
-    "pattern": "Applies regex filtering in media listings; only matching IDs are returned.",
-    "depth": "Controls namespace traversal depth; lower values reduce result breadth.",
-    "pages": "Specifies the set of page IDs to lock/unlock; output is constrained to successful IDs.",
-    "query": "Defines full-text search expression and directly determines match set and ranking.",
-    "pass_": "Password credential used for explicit login authentication.",
-    "base64": "Contains Base64-encoded binary payload; directly determines uploaded media content.",
-    "overwrite": "Controls whether an existing media object with the same ID may be replaced.",
-    "ctx": "Forwards the auth header from MCP request context.",
-    "topic": "Defines the research topic (single words or questions) for the research workflow guiding the wiki investigation and summary generation."
+    "page": "Target wiki page (identifier).",
+    "media": "Target wiki media (identifier).",
+    "text": "Raw DokuWiki markup.",
+    "summary": "Edit summary (revision metadata).",
+    "isminor": "Flag for minor edit.",
+    "user": "User to check ACL or to login as.",
+    "groups": "Group (context ACL).",
+    "rev": "Historical revision number (0 for latest).",
+    "first": "Skip newest first newest revisions (0 for revision 0).",
+    "author": "Include author metadata.",
+    "hash": "Include MD5 content hash.",
+    "timestamp": "Filter changes newer than timestamp.",
+    "namespace": "Namespace subtree for pages.",
+    "pattern": "Regex filter for media listings.",
+    "depth": "Namespace traversal depth.",
+    "pages": "Set of page IDs to lock/unlock.",
+    "query": "Full-text search expression (DokuWiki specific syntax).",
+    "pass_": "Password for login.",
+    "base64": "Base64-encoded binary payload (string)",
+    "overwrite": "Allow replacing existing media.",
+    "ctx": "Forward auth header from context.",
+    "topic": "Research topic for wiki investigation."
 }
 
 
@@ -130,7 +131,7 @@ def _build_parameter_section(func) -> str:
     if not lines:
         lines.append("- none (resource endpoint without API parameters).")
 
-    return "Parameters:\n" + "\n".join(lines)
+    return "Params:\n" + "\n".join(lines)
 
 
 def _build_return_section(func) -> str:
@@ -162,7 +163,6 @@ def common_context(func):
 # ==============================================================================
 
 def get_client(ctx: Context = None) -> DokuWikiClient:
-    logger.info("Creating DokuWiki client with context: %s", ctx)
     if ctx:
         headers = {}
         try:
@@ -530,64 +530,151 @@ async def wiki_unlockPages(pages: List, ctx: Context = None) -> Union[List[Any],
 # PROMPTS (Workflow-Vorlagen für das LLM)
 # ==============================================================================
 
-@mcp.prompt()
-@common_context
-def wiki_researcher(topic: str) -> list[PromptMessage]:
+# @mcp.prompt()
+# @common_context
+# def wiki_researcher(topic: str) -> list[PromptMessage]:
+#     """
+#     Startet einen Recherche-Workflow im Wiki mit garantierter Quellenangabe (URLs).
+#     """
+#     settings = get_settings()
+#     base_root = settings.dokuwiki_url.rstrip("/")
+#     if settings.dokuwiki_url_rewrite == 1:
+#         base_url = f"{base_root}/"
+#     elif settings.dokuwiki_url_rewrite == 2:
+#         base_url = f"{base_root}/doku.php/"
+#     else:
+#         base_url = f"{base_root}/doku.php?id="
+
+#     # Trick 1: Wir definieren die Regeln als "UNVERHANDELBAR"
+#     rules = f"""
+#         ### FORMATIERUNGS-GESETZ:
+#         1. Jede Information bekommt eine Nummer [1], [2] etc.
+#         2. Am Ende folgt die Sektion "### Quellen & Links".
+#         3. Jeder Link MUSS absolut sein: {base_url}page
+#         4. Nutze Markdown-Links: [Titel der Seite]({base_url}page)
+#     """.strip()
+
+#     # --- 1. SYSTEM PROMPT (Die Identität und das Regelwerk) ---
+#     system_content = f"""
+#         Du bist ein technischer Recherche-Assistent für unser internes Firmen-Wiki.
+#         Deine Aufgabe ist es, Informationen präzise zu finden, zusammenzufassen und Quellen korrekt zu belegen.
+
+#         GEHE STRENG NACH DIESEM WORKFLOW VOR:
+#         1. Listen: Nutze 'wiki_listPages', um ausgehend von Namespace '{{namespace}}' bis Tiefe '{{depth}}' Seiten zu finden.
+#         2. Suchen: Nutze 'wiki_searchPages' mit einer optimierten '{{query}}' für das Thema.
+#         3. Lesen: Nutze 'wiki_getPage', um die Inhalte der relevantesten Seiten zu extrahieren.
+#         4. Aktualität: Nutze 'wiki_getRecentPageChanges', um Änderungen seit '{{unix_timestamp}}' zu prüfen.
+#         5. Historie: Nutze 'wiki_getPageHistory' für Seite '{{page}}', überspringe dabei '{{first}}' Revisionen.
+#         6. Synthese: Erstelle eine strukturierte Zusammenfassung.
+
+#         {rules}
+
+#         ANTWORTE NUR WENN DU LINKS GENERIERST.
+#     """.strip()
+
+#     # --- 2. USER PROMPT (Der spezifische Arbeitsauftrag) ---
+#     user_content = f"Recherchiere bitte alle verfügbaren Informationen zum Thema: '{topic}'."
+
+#     # --- Die Rückgabe mit den richtigen MCP-Typen ---
+#     return [
+#         PromptMessage(
+#             # should be system role, but FastMCP currently only supports user prompts, 
+#             # so we use user role for both (1st with higher priority in the prompt template)
+#             role="user",
+#             content=TextContent(type="text", text=' '.join(system_content.split()))
+#         ),
+#         PromptMessage(
+#             role="user",
+#             content=TextContent(type="text", text=' '.join(user_content.split()))
+#         )
+#     ]
+
+
+
+# --- HILFSFUNKTION FÜR KORREKTE LINKS ---
+def get_markdown_link(page: str, title: str = None) -> str:
     """
-    Startet einen Recherche-Workflow im Wiki mit garantierter Quellenangabe (URLs).
+    Baut einen fertigen, klickbaren Markdown-Link für VS Code.
+    Nutzt die DokuWiki URL-Rewrite Einstellungen aus deiner Config.
     """
     settings = get_settings()
     base_root = settings.dokuwiki_url.rstrip("/")
+    
     if settings.dokuwiki_url_rewrite == 1:
-        base_url = f"{base_root}/"
+        url = f"{base_root}/{page}"
     elif settings.dokuwiki_url_rewrite == 2:
-        base_url = f"{base_root}/doku.php/"
+        url = f"{base_root}/doku.php/{page}"
     else:
-        base_url = f"{base_root}/doku.php?id="
+        url = f"{base_root}/doku.php?id={page}"
+        
+    display_text = title if title else page
+    # Gibt z.B. zurück: [wiki:syntax](http://localhost:8080/doku.php?id=wiki:syntax)
+    return f"[{display_text}]({url})"
 
-    # Trick 1: Wir definieren die Regeln als "UNVERHANDELBAR"
-    rules = f"""
-        ### FORMATIERUNGS-GESETZ:
-        1. Jede Information bekommt eine Nummer [1], [2] etc.
-        2. Am Ende folgt die Sektion "### Quellen & Links".
-        3. Jeder Link MUSS absolut sein: {base_url}PAGE_ID
-        4. Nutze Markdown-Links: [Titel der Seite]({base_url}PAGE_ID)
-    """.strip()
 
-    # --- 1. SYSTEM PROMPT (Die Identität und das Regelwerk) ---
-    system_content = f"""
-        Du bist ein technischer Recherche-Assistent für unser internes Firmen-Wiki.
-        Deine Aufgabe ist es, Informationen präzise zu finden, zusammenzufassen und Quellen korrekt zu belegen.
+# --- TOOL 1: SUCHE MIT FERTIGEN LINKS ---
+@mcp.tool()
+@common_context
+async def wiki_searchPages(query: str, ctx: Context = None) -> str:
+    """
+    Sucht im Wiki. Liefert klickbare Markdown-Links zurück, 
+    die der Agent direkt an den User weitergeben MUSS.
+    """
+    client = get_client(ctx)
+    results, err = await client.searchPages(query=query)
+    
+    if not results:
+        return f"Keine Ergebnisse für '{query}' gefunden."
 
-        GEHE STRENG NACH DIESEM WORKFLOW VOR:
-        1. Listen: Nutze 'wiki_listPages', um ausgehend von Namespace '{{namespace}}' bis Tiefe '{{depth}}' Seiten zu finden.
-        2. Suchen: Nutze 'wiki_searchPages' mit einer optimierten '{{query}}' für das Thema.
-        3. Lesen: Nutze 'wiki_getPage', um die Inhalte der relevantesten Seiten zu extrahieren.
-        4. Aktualität: Nutze 'wiki_getRecentPageChanges', um Änderungen seit '{{unix_timestamp}}' zu prüfen.
-        5. Historie: Nutze 'wiki_getPageHistory' für Seite '{{page}}', überspringe dabei '{{first}}' Revisionen.
-        6. Synthese: Erstelle eine strukturierte Zusammenfassung.
+    # Wir zwingen das Markdown direkt in die Tool-Antwort!
+    output_lines = [f"Ergebnisse für '{query}':"]
+    for res in results[:15]: # Max 15
+        page = res.get('id')
+        title = res.get('title', page)
+        # HIER PASSIERT DIE MAGIE:
+        md_link = get_markdown_link(page, title)
+        output_lines.append(f"- {md_link}")
+        
+    return "\n".join(output_lines)
 
-        {rules}
 
-        ANTWORTE NUR WENN DU LINKS GENERIERST.
-    """.strip()
-
-    # --- 2. USER PROMPT (Der spezifische Arbeitsauftrag) ---
-    user_content = f"Recherchiere bitte alle verfügbaren Informationen zum Thema: '{topic}'."
-
-    # --- Die Rückgabe mit den richtigen MCP-Typen ---
-    return [
-        PromptMessage(
-            # should be system role, but FastMCP currently only supports user prompts, 
-            # so we use user role for both (1st with higher priority in the prompt template)
-            role="user",
-            content=TextContent(type="text", text=' '.join(system_content.split()))
-        ),
-        PromptMessage(
-            role="user",
-            content=TextContent(type="text", text=' '.join(user_content.split()))
+# --- TOOL 2: DAS PREVIEW / DIFF TOOL ---
+@mcp.tool()
+@common_context
+async def wiki_preview_edit(page: str, new_content: str, ctx: Context = None) -> str:
+    """
+    Zeigt einen Markdown-Diff VOR dem Speichern.
+    """
+    try:
+        client = get_client(ctx)
+        old_content, err = await client.getPage(page=page)
+        
+        # Diff berechnen
+        diff = difflib.unified_diff(
+            old_content.splitlines(),
+            new_content.splitlines(),
+            fromfile=f"Original",
+            tofile=f"KI-Änderung",
+            lineterm=""
         )
-    ]
+        diff_text = "\n".join(diff)
+        
+        if not diff_text:
+            return f"INFO: Keine Änderungen für {page} erkannt."
+
+        # Den fertigen Link zur Seite generieren
+        md_link = get_markdown_link(page)
+
+        # Die Rückgabe zwingt das LLM in ein wunderschönes Format
+        return (
+            f"WICHTIG: Gib dem User exakt diesen Text aus, damit er den Link klicken kann:\n\n"
+            f"### Änderungsvorschlag für {md_link}\n"
+            f"Bitte prüfe den folgenden Diff:\n"
+            f"```diff\n{diff_text}\n```\n"
+            f"\n**Soll ich das speichern? (Nutze danach das Tool 'wiki_edit_page')**"
+        )
+    except Exception as e:
+        return f"Fehler bei Vorschau: {str(e)}"
 
 
 # ==============================================================================
