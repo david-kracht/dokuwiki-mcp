@@ -4,11 +4,76 @@
 # ==============================================================================
 import httpx
 import logging
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Annotated
 from pydantic import BaseModel, Field
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# --- REUSABLE ANNOTATED TYPES ---
+# Diese Typen definieren Struktur und Dokumentation zentral. 
+# Importiere sie in deiner server.py für die MCP Tools!
+
+ReqAuthorType = Annotated[bool, Field(title="author", description='whether to include the author information', default=False, examples=[True])]
+ReqBase64Type = Annotated[str, Field(title="base64", description='Base64 encoded file contents', examples=['some-base64'])]
+ReqDepthType = Annotated[int, Field(title="depth", description='How deep to search. 0 for all subnamespaces', default=1, examples=[42])]
+ReqFirstType = Annotated[int, Field(title="first", description='skip the first n changelog lines, 0 starts at the current revision', default=0, examples=[42])]
+ReqGroupsType = Annotated[List, Field(title="groups", description='array of groups', default=[], examples=[['some-groups', 'other-groups']])]
+ReqHashType = Annotated[bool, Field(title="hash", description='whether to include the MD5 hash of the media content', default=False, examples=[True])]
+ReqIsminorType = Annotated[bool, Field(title="isminor", description='whether this is a minor edit', default=False, examples=[True])]
+ReqMediaType = Annotated[str, Field(title="media", description='media id', examples=['wiki:dokuwiki-128.png'])]
+ReqNamespaceType = Annotated[str, Field(title="namespace", description='The namespace to search. Empty string for root namespace', default="", examples=['some-namespace'])]
+ReqOverwriteType = Annotated[bool, Field(title="overwrite", description='Should an existing file be overwritten?', default=False, examples=[True])]
+ReqPageType = Annotated[str, Field(title="page", description='A page or media ID', examples=['playground:playground'])]
+ReqPagesType = Annotated[List, Field(title="pages", description='A list of pages to lock', examples=[['some-pages', 'other-pages']])]
+ReqPassType = Annotated[str, Field(title="pass", description='The password', examples=['some-pass'])]
+ReqPatternType = Annotated[str, Field(title="pattern", description='A regular expression to filter the returned files', default="", examples=['some-pattern'])]
+ReqQueryType = Annotated[str, Field(title="query", description='The search query as supported by the DokuWiki search', examples=['some-query'])]
+ReqRevType = Annotated[int, Field(title="rev", description='revision timestamp', default=0, examples=[0])]
+ReqSummaryType = Annotated[str, Field(title="summary", description='edit summary', default="", examples=['some-summary'])]
+ReqTextType = Annotated[str, Field(title="text", description='wiki text', examples=['some-text'])]
+ReqTimestampType = Annotated[int, Field(title="timestamp", description='Only show changes newer than this unix timestamp', default=0, examples=[1775759887])]
+ReqUserType = Annotated[str, Field(title="user", description='username', default="", examples=['some-user'])]
+ResAclcheckresultType = Annotated[int, Field(title="aclCheckResult", description='permission level', examples=[42])]
+ResAppendpageresultType = Annotated[bool, Field(title="appendPageResult", description='Returns true on success', examples=[True])]
+ResAuthorType = Annotated[str, Field(title="author", description='The author of this change')]
+ResDeletemediaresultType = Annotated[bool, Field(title="deleteMediaResult", description='Should always be true', examples=[True])]
+ResGetapiversionresultType = Annotated[int, Field(title="getAPIVersionResult", description='API Result', examples=[42])]
+ResGetmediaresultType = Annotated[str, Field(title="getMediaResult", description='Base64 encoded media file contents', examples=['some-result'])]
+ResGetmediausageresultType = Annotated[List, Field(title="getMediaUsageResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
+ResGetpagebacklinksresultType = Annotated[List, Field(title="getPageBackLinksResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
+ResGetpagehtmlresultType = Annotated[str, Field(title="getPageHTMLResult", description='Rendered HTML for the page', examples=['some-result'])]
+ResGetpageresultType = Annotated[str, Field(title="getPageResult", description='the syntax of the page', examples=['some-result'])]
+ResGetwikitimeresultType = Annotated[int, Field(title="getWikiTimeResult", description='A unix timestamp', examples=[42])]
+ResGetwikititleresultType = Annotated[str, Field(title="getWikiTitleResult", description='API Result', examples=['some-result'])]
+ResGetwikiversionresultType = Annotated[str, Field(title="getWikiVersionResult", description='The version string e.g. "Release 2023-04-04a"', examples=['some-result'])]
+ResGroupsType = Annotated[List, Field(title="groups", description='The groups the user is in')]
+ResHashType = Annotated[str, Field(title="hash", description="MD5 sum over the file's content (if available and requested)")]
+ResHrefType = Annotated[str, Field(title="href", description='A hyperlink pointing to the linked target')]
+ResIdType = Annotated[str, Field(title="id", description='The media ID')]
+ResIpType = Annotated[str, Field(title="ip", description='The IP address from where this change was made')]
+ResIsadminType = Annotated[bool, Field(title="isadmin", description='Whether the user is a super user')]
+ResIsimageType = Annotated[bool, Field(title="isimage", description='Wether this is an image file')]
+ResIsmanagerType = Annotated[bool, Field(title="ismanager", description='Whether the user is a manager')]
+ResLockpagesresultType = Annotated[List, Field(title="lockPagesResult", description='A list of pages that were successfully locked', examples=[['some-result', 'other-result']])]
+ResLoginType = Annotated[str, Field(title="login", description='The login name of the user')]
+ResLoginresultType = Annotated[int, Field(title="loginResult", description='If the login was successful', examples=[42])]
+ResLogoffresultType = Annotated[int, Field(title="logoffResult", description='0 on failure, 1 on success', examples=[42])]
+ResMailType = Annotated[str, Field(title="mail", description='The email address of the user')]
+ResNameType = Annotated[str, Field(title="name", description='The full name of the user')]
+ResPageType = Annotated[str, Field(title="page", description='The wiki page this link points to, same as `href` for external links')]
+ResPermissionType = Annotated[int, Field(title="permission", description="The current user's permissions for this file")]
+ResRevisionType = Annotated[int, Field(title="revision", description='The revision (timestamp) of this change')]
+ResSavemediaresultType = Annotated[bool, Field(title="saveMediaResult", description='Should always be true', examples=[True])]
+ResSavepageresultType = Annotated[bool, Field(title="savePageResult", description='Returns true on success', examples=[True])]
+ResScoreType = Annotated[int, Field(title="score", description='The number of hits this result got')]
+ResSizeType = Annotated[int, Field(title="size", description='The page size in bytes')]
+ResSizechangeType = Annotated[int, Field(title="sizechange", description='The change in bytes')]
+ResSnippetType = Annotated[str, Field(title="snippet", description='The HTML formatted snippet in which the search term was found (if available)')]
+ResSummaryType = Annotated[str, Field(title="summary", description='The summary of this change')]
+ResTitleType = Annotated[str, Field(title="title", description='The page title')]
+ResTypeType = Annotated[str, Field(title="type", description='The type of this change')]
+ResUnlockpagesresultType = Annotated[List, Field(title="unlockPagesResult", description='A list of pages that were successfully unlocked', examples=[['some-result', 'other-result']])]
 
 # --- BASE MODELS ---
 
@@ -19,112 +84,112 @@ class RPCError(BaseModel):
 
 # --- STRUCTURED RESULT MODELS ---
 
-class getMediaHistoryResult(BaseModel):
+class GetmediahistoryResult(BaseModel):
     """Returns a list of available revisions of a given media file"""
-    id: str = Field(default=None, description="""The media ID""")
-    revision: int = Field(default=0, description="""The revision (timestamp) of this change""")
-    author: str = Field(default=None, description="""The author of this change""")
-    ip: str = Field(default=None, description="""The IP address from where this change was made""")
-    summary: str = Field(default=None, description="""The summary of this change""")
-    type: str = Field(default=None, description="""The type of this change""")
-    sizechange: int = Field(default=0, description="""The change in bytes""")
+    id: ResIdType
+    revision: ResRevisionType
+    author: ResAuthorType
+    ip: ResIpType
+    summary: ResSummaryType
+    type: ResTypeType
+    sizechange: ResSizechangeType
 
-class getMediaInfoResult(BaseModel):
+class GetmediainfoResult(BaseModel):
     """Return info about a media file"""
-    id: str = Field(default=None, description="""The media ID""")
-    revision: int = Field(default=0, description="""The media revision aka last modified timestamp""")
-    size: int = Field(default=0, description="""The page size in bytes""")
-    permission: int = Field(default=0, description="""The current user's permissions for this file""")
-    isimage: bool = Field(default=False, description="""Wether this is an image file""")
-    hash: str = Field(default=None, description="""MD5 sum over the file's content (if available and requested)""")
-    author: str = Field(default=None, description="""The author of this page revision (if available and requested)""")
+    id: ResIdType
+    revision: ResRevisionType
+    size: ResSizeType
+    permission: ResPermissionType
+    isimage: ResIsimageType
+    hash: ResHashType
+    author: ResAuthorType
 
-class getPageHistoryResult(BaseModel):
+class GetpagehistoryResult(BaseModel):
     """Returns a list of available revisions of a given wiki page"""
-    id: str = Field(default=None, description="""The page ID""")
-    revision: int = Field(default=0, description="""The revision (timestamp) of this change""")
-    author: str = Field(default=None, description="""The author of this change""")
-    ip: str = Field(default=None, description="""The IP address from where this change was made""")
-    summary: str = Field(default=None, description="""The summary of this change""")
-    type: str = Field(default=None, description="""The type of this change""")
-    sizechange: int = Field(default=0, description="""The change in bytes""")
+    id: ResIdType
+    revision: ResRevisionType
+    author: ResAuthorType
+    ip: ResIpType
+    summary: ResSummaryType
+    type: ResTypeType
+    sizechange: ResSizechangeType
 
-class getPageInfoResult(BaseModel):
+class GetpageinfoResult(BaseModel):
     """Return some basic data about a page"""
-    id: str = Field(default=None, description="""The page ID""")
-    revision: int = Field(default=0, description="""The page revision aka last modified timestamp""")
-    size: int = Field(default=0, description="""The page size in bytes""")
-    title: str = Field(default=None, description="""The page title""")
-    permission: int = Field(default=0, description="""The current user's permissions for this page""")
-    hash: str = Field(default=None, description="""MD5 sum over the page's content (if available and requested)""")
-    author: str = Field(default=None, description="""The author of this page revision (if available and requested)""")
+    id: ResIdType
+    revision: ResRevisionType
+    size: ResSizeType
+    title: ResTitleType
+    permission: ResPermissionType
+    hash: ResHashType
+    author: ResAuthorType
 
-class getPageLinksResult(BaseModel):
+class GetpagelinksResult(BaseModel):
     """Get a page's links"""
-    type: str = Field(default=None, description="""The type of this link: `internal`, `external` or `interwiki`""")
-    page: str = Field(default=None, description="""The wiki page this link points to, same as `href` for external links""")
-    href: str = Field(default=None, description="""A hyperlink pointing to the linked target""")
+    type: ResTypeType
+    page: ResPageType
+    href: ResHrefType
 
-class getRecentMediaChangesResult(BaseModel):
+class GetrecentmediachangesResult(BaseModel):
     """Get recent media changes"""
-    id: str = Field(default=None, description="""The media ID""")
-    revision: int = Field(default=0, description="""The revision (timestamp) of this change""")
-    author: str = Field(default=None, description="""The author of this change""")
-    ip: str = Field(default=None, description="""The IP address from where this change was made""")
-    summary: str = Field(default=None, description="""The summary of this change""")
-    type: str = Field(default=None, description="""The type of this change""")
-    sizechange: int = Field(default=0, description="""The change in bytes""")
+    id: ResIdType
+    revision: ResRevisionType
+    author: ResAuthorType
+    ip: ResIpType
+    summary: ResSummaryType
+    type: ResTypeType
+    sizechange: ResSizechangeType
 
-class getRecentPageChangesResult(BaseModel):
+class GetrecentpagechangesResult(BaseModel):
     """Get recent page changes"""
-    id: str = Field(default=None, description="""The page ID""")
-    revision: int = Field(default=0, description="""The revision (timestamp) of this change""")
-    author: str = Field(default=None, description="""The author of this change""")
-    ip: str = Field(default=None, description="""The IP address from where this change was made""")
-    summary: str = Field(default=None, description="""The summary of this change""")
-    type: str = Field(default=None, description="""The type of this change""")
-    sizechange: int = Field(default=0, description="""The change in bytes""")
+    id: ResIdType
+    revision: ResRevisionType
+    author: ResAuthorType
+    ip: ResIpType
+    summary: ResSummaryType
+    type: ResTypeType
+    sizechange: ResSizechangeType
 
-class listMediaResult(BaseModel):
+class ListmediaResult(BaseModel):
     """List all media files in the given namespace (and below)"""
-    id: str = Field(default=None, description="""The media ID""")
-    revision: int = Field(default=0, description="""The media revision aka last modified timestamp""")
-    size: int = Field(default=0, description="""The page size in bytes""")
-    permission: int = Field(default=0, description="""The current user's permissions for this file""")
-    isimage: bool = Field(default=False, description="""Wether this is an image file""")
-    hash: str = Field(default=None, description="""MD5 sum over the file's content (if available and requested)""")
-    author: str = Field(default=None, description="""The author of this page revision (if available and requested)""")
+    id: ResIdType
+    revision: ResRevisionType
+    size: ResSizeType
+    permission: ResPermissionType
+    isimage: ResIsimageType
+    hash: ResHashType
+    author: ResAuthorType
 
-class listPagesResult(BaseModel):
+class ListpagesResult(BaseModel):
     """List all pages in the given namespace (and below)"""
-    id: str = Field(default=None, description="""The page ID""")
-    revision: int = Field(default=0, description="""The page revision aka last modified timestamp""")
-    size: int = Field(default=0, description="""The page size in bytes""")
-    title: str = Field(default=None, description="""The page title""")
-    permission: int = Field(default=0, description="""The current user's permissions for this page""")
-    hash: str = Field(default=None, description="""MD5 sum over the page's content (if available and requested)""")
-    author: str = Field(default=None, description="""The author of this page revision (if available and requested)""")
+    id: ResIdType
+    revision: ResRevisionType
+    size: ResSizeType
+    title: ResTitleType
+    permission: ResPermissionType
+    hash: ResHashType
+    author: ResAuthorType
 
-class searchPagesResult(BaseModel):
+class SearchpagesResult(BaseModel):
     """Do a fulltext search"""
-    score: int = Field(default=0, description="""The number of hits this result got""")
-    snippet: str = Field(default=None, description="""The HTML formatted snippet in which the search term was found (if available)""")
-    hash: str = Field(default=None, description="""Not available for search results""")
-    author: str = Field(default=None, description="""Not available for search results""")
-    id: str = Field(default=None, description="""The page ID""")
-    revision: int = Field(default=0, description="""The page revision aka last modified timestamp""")
-    size: int = Field(default=0, description="""The page size in bytes""")
-    title: str = Field(default=None, description="""The page title""")
-    permission: int = Field(default=0, description="""The current user's permissions for this page""")
+    score: ResScoreType
+    snippet: ResSnippetType
+    hash: ResHashType
+    author: ResAuthorType
+    id: ResIdType
+    revision: ResRevisionType
+    size: ResSizeType
+    title: ResTitleType
+    permission: ResPermissionType
 
-class whoAmIResult(BaseModel):
+class WhoamiResult(BaseModel):
     """Info about the currently authenticated user"""
-    login: str = Field(default=None, description="""The login name of the user""")
-    name: str = Field(default=None, description="""The full name of the user""")
-    mail: str = Field(default=None, description="""The email address of the user""")
-    groups: List = Field(default=None, description="""The groups the user is in""")
-    isadmin: bool = Field(default=False, description="""Whether the user is a super user""")
-    ismanager: bool = Field(default=False, description="""Whether the user is a manager""")
+    login: ResLoginType
+    name: ResNameType
+    mail: ResMailType
+    groups: ResGroupsType
+    isadmin: ResIsadminType
+    ismanager: ResIsmanagerType
 
 
 # --- CLIENT IMPLEMENTATION ---
@@ -179,18 +244,10 @@ class DokuWikiClient:
         except Exception as e:
             return None, RPCError(code=-999, message=str(e))
 
-    async def aclCheck(self, page: str, user: str = "", groups: List = "[]") -> Tuple[Optional[int], Optional[RPCError]]:
-        """Check ACL Permissions
-
-        This call allows to check the permissions for a given page/media and user/group combination. If no user/group is given, the current user is used. Read the link below to learn more about the permission levels. **See also:** * [Acl Background Info](https://www.dokuwiki.org/acl#background_info)
-
-        Args:
-            page (str): A page or media ID
-            user (str): username [_default: `""`_] (Default: "")
-            groups (List): array of groups [_default: `[]`_] (Default: "[]")
-
-        Returns:
-            Tuple[Optional[int], Optional[RPCError]]: A tuple containing (Result: permission level, Error: RPCError object)
+    async def aclCheck(self, page: ReqPageType, user: ReqUserType = "", groups: ReqGroupsType = []) -> Tuple[Optional[ResAclcheckresultType], Optional[RPCError]]:
+        """Check ACL Permissions: This call allows to check the permissions for a given page/media and user/group combination. If no user/group is given, the current user is used. Read the link below to learn more about the permission levels. **See also:** * [Acl Background Info](https://www.dokuwiki.org/acl#background_info)
+        ---
+        Returns: A tuple containing (Result: permission level, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -199,19 +256,10 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.aclCheck", params, None)
 
-    async def appendPage(self, page: str, text: str, summary: str = "", isminor: bool = False) -> Tuple[Optional[bool], Optional[RPCError]]:
-        """Appends text to the end of a wiki page
-
-        If the page does not exist, it will be created. If a page template for the non-existant page is configured, the given text will appended to that template. The call will create a new page revision. You need write permissions for the given page.
-
-        Args:
-            page (str): page id
-            text (str): wiki text
-            summary (str): edit summary [_default: `""`_] (Default: "")
-            isminor (bool): whether this is a minor edit [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[bool], Optional[RPCError]]: A tuple containing (Result: Returns true on success, Error: RPCError object)
+    async def appendPage(self, page: ReqPageType, text: ReqTextType, summary: ReqSummaryType = "", isminor: ReqIsminorType = False) -> Tuple[Optional[ResAppendpageresultType], Optional[RPCError]]:
+        """Appends text to the end of a wiki page: If the page does not exist, it will be created. If a page template for the non-existant page is configured, the given text will appended to that template. The call will create a new page revision. You need write permissions for the given page.
+        ---
+        Returns: A tuple containing (Result: Returns true on success, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -221,45 +269,29 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.appendPage", params, None)
 
-    async def deleteMedia(self, media: str) -> Tuple[Optional[bool], Optional[RPCError]]:
-        """Deletes a file from the wiki
-
-        You need to have delete permissions for the file.
-
-        Args:
-            media (str): media id
-
-        Returns:
-            Tuple[Optional[bool], Optional[RPCError]]: A tuple containing (Result: Should always be true, Error: RPCError object)
+    async def deleteMedia(self, media: ReqMediaType) -> Tuple[Optional[ResDeletemediaresultType], Optional[RPCError]]:
+        """Deletes a file from the wiki: You need to have delete permissions for the file.
+        ---
+        Returns: A tuple containing (Result: Should always be true, Error: RPCError object)
         """
         params = {
             "media": media,
         }
         return await self._rpc_call("core.deleteMedia", params, None)
 
-    async def getAPIVersion(self) -> Tuple[Optional[int], Optional[RPCError]]:
-        """Return the API version
-
-        This method is public and does not require authentication. This is the version of the DokuWiki API. It increases whenever the API definition changes. When developing a client, you should check this version and make sure you can handle it.
-
-        Returns:
-            Tuple[Optional[int], Optional[RPCError]]: A tuple containing (Result: Return the API version, Error: RPCError object)
+    async def getAPIVersion(self) -> Tuple[Optional[ResGetapiversionresultType], Optional[RPCError]]:
+        """Return the API version: This method is public and does not require authentication. This is the version of the DokuWiki API. It increases whenever the API definition changes. When developing a client, you should check this version and make sure you can handle it.
+        ---
+        Returns: A tuple containing (Result: Return the API version, Error: RPCError object)
         """
         params = {
         }
         return await self._rpc_call("core.getAPIVersion", params, None)
 
-    async def getMedia(self, media: str, rev: int = 0) -> Tuple[Optional[str], Optional[RPCError]]:
-        """Get a media file's content
-
-        Returns the content of the given media file. When no revision is given, the current revision is returned. **See also:** * https://en.wikipedia.org/wiki/Base64
-
-        Args:
-            media (str): file id
-            rev (int): revision timestamp [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[str], Optional[RPCError]]: A tuple containing (Result: Base64 encoded media file contents, Error: RPCError object)
+    async def getMedia(self, media: ReqMediaType, rev: ReqRevType = 0) -> Tuple[Optional[ResGetmediaresultType], Optional[RPCError]]:
+        """Get a media file's content: Returns the content of the given media file. When no revision is given, the current revision is returned. **See also:** * https://en.wikipedia.org/wiki/Base64
+        ---
+        Returns: A tuple containing (Result: Base64 encoded media file contents, Error: RPCError object)
         """
         params = {
             "media": media,
@@ -267,37 +299,21 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getMedia", params, None)
 
-    async def getMediaHistory(self, media: str, first: int = 0) -> Tuple[Optional[List[getMediaHistoryResult]], Optional[RPCError]]:
-        """Returns a list of available revisions of a given media file
-
-        The number of returned files is set by `$conf['recent']`, but non accessible revisions are skipped, so less than that may be returned. Since API Version 14 @author **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
-
-        Args:
-            media (str): file id
-            first (int): skip the first n changelog lines, 0 starts at the current revision [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[List[getMediaHistoryResult]], Optional[RPCError]]: A tuple containing (Result: Returns a list of available revisions of a given media file, Error: RPCError object)
+    async def getMediaHistory(self, media: ReqMediaType, first: ReqFirstType = 0) -> Tuple[Optional[List[GetmediahistoryResult]], Optional[RPCError]]:
+        """Returns a list of available revisions of a given media file: The number of returned files is set by `$conf['recent']`, but non accessible revisions are skipped, so less than that may be returned. Since API Version 14 @author **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
+        ---
+        Returns: A tuple containing (Result: Returns a list of available revisions of a given media file, Error: RPCError object)
         """
         params = {
             "media": media,
             "first": first,
         }
-        return await self._rpc_call("core.getMediaHistory", params, getMediaHistoryResult)
+        return await self._rpc_call("core.getMediaHistory", params, GetmediahistoryResult)
 
-    async def getMediaInfo(self, media: str, rev: int = 0, author: bool = False, hash: bool = False) -> Tuple[Optional[getMediaInfoResult], Optional[RPCError]]:
-        """Return info about a media file
-
-        The call will return an error if the requested media file does not exist. Read access is required for the media file.
-
-        Args:
-            media (str): file id
-            rev (int): revision timestamp [_default: `0`_] (Default: 0)
-            author (bool): whether to include the author information [_default: `false`_] (Default: False)
-            hash (bool): whether to include the MD5 hash of the media content [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[getMediaInfoResult], Optional[RPCError]]: A tuple containing (Result: Return info about a media file, Error: RPCError object)
+    async def getMediaInfo(self, media: ReqMediaType, rev: ReqRevType = 0, author: ReqAuthorType = False, hash: ReqHashType = False) -> Tuple[Optional[GetmediainfoResult], Optional[RPCError]]:
+        """Return info about a media file: The call will return an error if the requested media file does not exist. Read access is required for the media file.
+        ---
+        Returns: A tuple containing (Result: Return info about a media file, Error: RPCError object)
         """
         params = {
             "media": media,
@@ -305,35 +321,22 @@ class DokuWikiClient:
             "author": author,
             "hash": hash,
         }
-        return await self._rpc_call("core.getMediaInfo", params, getMediaInfoResult)
+        return await self._rpc_call("core.getMediaInfo", params, GetmediainfoResult)
 
-    async def getMediaUsage(self, media: str) -> Tuple[Optional[List], Optional[RPCError]]:
-        """Returns the pages that use a given media file
-
-        The call will return an error if the requested media file does not exist. Read access is required for the media file. Since API Version 13
-
-        Args:
-            media (str): file id
-
-        Returns:
-            Tuple[Optional[List], Optional[RPCError]]: A tuple containing (Result: A list of pages linking to the given page, Error: RPCError object)
+    async def getMediaUsage(self, media: ReqMediaType) -> Tuple[Optional[ResGetmediausageresultType], Optional[RPCError]]:
+        """Returns the pages that use a given media file: The call will return an error if the requested media file does not exist. Read access is required for the media file. Since API Version 13
+        ---
+        Returns: A tuple containing (Result: A list of pages linking to the given page, Error: RPCError object)
         """
         params = {
             "media": media,
         }
         return await self._rpc_call("core.getMediaUsage", params, None)
 
-    async def getPage(self, page: str, rev: int = 0) -> Tuple[Optional[str], Optional[RPCError]]:
-        """Get a wiki page's syntax
-
-        Returns the syntax of the given page. When no revision is given, the current revision is returned. A non-existing page (or revision) will return an empty string usually. For the current revision a page template will be returned if configured. Read access is required for the page.
-
-        Args:
-            page (str): wiki page id
-            rev (int): Revision timestamp to access an older revision [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[str], Optional[RPCError]]: A tuple containing (Result: the syntax of the page, Error: RPCError object)
+    async def getPage(self, page: ReqPageType, rev: ReqRevType = 0) -> Tuple[Optional[ResGetpageresultType], Optional[RPCError]]:
+        """Get a wiki page's syntax: Returns the syntax of the given page. When no revision is given, the current revision is returned. A non-existing page (or revision) will return an empty string usually. For the current revision a page template will be returned if configured. Read access is required for the page.
+        ---
+        Returns: A tuple containing (Result: the syntax of the page, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -341,33 +344,20 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getPage", params, None)
 
-    async def getPageBackLinks(self, page: str) -> Tuple[Optional[List], Optional[RPCError]]:
-        """Get a page's backlinks
-
-        A backlink is a wiki link on another page that links to the given page. Only links from pages readable by the current user are returned. The page itself needs to be readable. Otherwise an error is returned.
-
-        Args:
-            page (str): page id
-
-        Returns:
-            Tuple[Optional[List], Optional[RPCError]]: A tuple containing (Result: A list of pages linking to the given page, Error: RPCError object)
+    async def getPageBackLinks(self, page: ReqPageType) -> Tuple[Optional[ResGetpagebacklinksresultType], Optional[RPCError]]:
+        """Get a page's backlinks: A backlink is a wiki link on another page that links to the given page. Only links from pages readable by the current user are returned. The page itself needs to be readable. Otherwise an error is returned.
+        ---
+        Returns: A tuple containing (Result: A list of pages linking to the given page, Error: RPCError object)
         """
         params = {
             "page": page,
         }
         return await self._rpc_call("core.getPageBackLinks", params, None)
 
-    async def getPageHTML(self, page: str, rev: int = 0) -> Tuple[Optional[str], Optional[RPCError]]:
-        """Return a wiki page rendered to HTML
-
-        The page is rendered to HTML as it would be in the wiki. The HTML consist only of the data for the page content itself, no surrounding structural tags, header, footers, sidebars etc are returned. References in the HTML are relative to the wiki base URL unless the `canonical` configuration is set. If the page does not exist, an error is returned. **See also:** * [Config Canonical](https://www.dokuwiki.org/config:canonical)
-
-        Args:
-            page (str): page id
-            rev (int): revision timestamp [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[str], Optional[RPCError]]: A tuple containing (Result: Rendered HTML for the page, Error: RPCError object)
+    async def getPageHTML(self, page: ReqPageType, rev: ReqRevType = 0) -> Tuple[Optional[ResGetpagehtmlresultType], Optional[RPCError]]:
+        """Return a wiki page rendered to HTML: The page is rendered to HTML as it would be in the wiki. The HTML consist only of the data for the page content itself, no surrounding structural tags, header, footers, sidebars etc are returned. References in the HTML are relative to the wiki base URL unless the `canonical` configuration is set. If the page does not exist, an error is returned. **See also:** * [Config Canonical](https://www.dokuwiki.org/config:canonical)
+        ---
+        Returns: A tuple containing (Result: Rendered HTML for the page, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -375,37 +365,21 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getPageHTML", params, None)
 
-    async def getPageHistory(self, page: str, first: int = 0) -> Tuple[Optional[List[getPageHistoryResult]], Optional[RPCError]]:
-        """Returns a list of available revisions of a given wiki page
-
-        The number of returned pages is set by `$conf['recent']`, but non accessible revisions are skipped, so less than that may be returned. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
-
-        Args:
-            page (str): page id
-            first (int): skip the first n changelog lines, 0 starts at the current revision [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[List[getPageHistoryResult]], Optional[RPCError]]: A tuple containing (Result: Returns a list of available revisions of a given wiki page, Error: RPCError object)
+    async def getPageHistory(self, page: ReqPageType, first: ReqFirstType = 0) -> Tuple[Optional[List[GetpagehistoryResult]], Optional[RPCError]]:
+        """Returns a list of available revisions of a given wiki page: The number of returned pages is set by `$conf['recent']`, but non accessible revisions are skipped, so less than that may be returned. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
+        ---
+        Returns: A tuple containing (Result: Returns a list of available revisions of a given wiki page, Error: RPCError object)
         """
         params = {
             "page": page,
             "first": first,
         }
-        return await self._rpc_call("core.getPageHistory", params, getPageHistoryResult)
+        return await self._rpc_call("core.getPageHistory", params, GetpagehistoryResult)
 
-    async def getPageInfo(self, page: str, rev: int = 0, author: bool = False, hash: bool = False) -> Tuple[Optional[getPageInfoResult], Optional[RPCError]]:
-        """Return some basic data about a page
-
-        The call will return an error if the requested page does not exist. Read access is required for the page.
-
-        Args:
-            page (str): page id
-            rev (int): revision timestamp [_default: `0`_] (Default: 0)
-            author (bool): whether to include the author information [_default: `false`_] (Default: False)
-            hash (bool): whether to include the MD5 hash of the page content [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[getPageInfoResult], Optional[RPCError]]: A tuple containing (Result: Return some basic data about a page, Error: RPCError object)
+    async def getPageInfo(self, page: ReqPageType, rev: ReqRevType = 0, author: ReqAuthorType = False, hash: ReqHashType = False) -> Tuple[Optional[GetpageinfoResult], Optional[RPCError]]:
+        """Return some basic data about a page: The call will return an error if the requested page does not exist. Read access is required for the page.
+        ---
+        Returns: A tuple containing (Result: Return some basic data about a page, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -413,105 +387,69 @@ class DokuWikiClient:
             "author": author,
             "hash": hash,
         }
-        return await self._rpc_call("core.getPageInfo", params, getPageInfoResult)
+        return await self._rpc_call("core.getPageInfo", params, GetpageinfoResult)
 
-    async def getPageLinks(self, page: str) -> Tuple[Optional[List[getPageLinksResult]], Optional[RPCError]]:
-        """Get a page's links
-
-        This returns a list of links found in the given page. This includes internal, external and interwiki links If a link occurs multiple times on the page, it will be returned multiple times. Read access for the given page is needed and page has to exist.
-
-        Args:
-            page (str): page id
-
-        Returns:
-            Tuple[Optional[List[getPageLinksResult]], Optional[RPCError]]: A tuple containing (Result: A list of links found on the given page, Error: RPCError object)
+    async def getPageLinks(self, page: ReqPageType) -> Tuple[Optional[List[GetpagelinksResult]], Optional[RPCError]]:
+        """Get a page's links: This returns a list of links found in the given page. This includes internal, external and interwiki links If a link occurs multiple times on the page, it will be returned multiple times. Read access for the given page is needed and page has to exist.
+        ---
+        Returns: A tuple containing (Result: A list of links found on the given page, Error: RPCError object)
         """
         params = {
             "page": page,
         }
-        return await self._rpc_call("core.getPageLinks", params, getPageLinksResult)
+        return await self._rpc_call("core.getPageLinks", params, GetpagelinksResult)
 
-    async def getRecentMediaChanges(self, timestamp: int = 0) -> Tuple[Optional[List[getRecentMediaChangesResult]], Optional[RPCError]]:
-        """Get recent media changes
-
-        Returns a list of recent changes to media files. The results can be limited to changes newer than a given timestamp. Only changes within the configured `$conf['recent']` range are returned. This is the default when no timestamp is given. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
-
-        Args:
-            timestamp (int): Only show changes newer than this unix timestamp [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[List[getRecentMediaChangesResult]], Optional[RPCError]]: A tuple containing (Result: Get recent media changes, Error: RPCError object)
+    async def getRecentMediaChanges(self, timestamp: ReqTimestampType = 0) -> Tuple[Optional[List[GetrecentmediachangesResult]], Optional[RPCError]]:
+        """Get recent media changes: Returns a list of recent changes to media files. The results can be limited to changes newer than a given timestamp. Only changes within the configured `$conf['recent']` range are returned. This is the default when no timestamp is given. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
+        ---
+        Returns: A tuple containing (Result: Get recent media changes, Error: RPCError object)
         """
         params = {
             "timestamp": timestamp,
         }
-        return await self._rpc_call("core.getRecentMediaChanges", params, getRecentMediaChangesResult)
+        return await self._rpc_call("core.getRecentMediaChanges", params, GetrecentmediachangesResult)
 
-    async def getRecentPageChanges(self, timestamp: int = 0) -> Tuple[Optional[List[getRecentPageChangesResult]], Optional[RPCError]]:
-        """Get recent page changes
-
-        Returns a list of recent changes to wiki pages. The results can be limited to changes newer than a given timestamp. Only changes within the configured `$conf['recent']` range are returned. This is the default when no timestamp is given. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
-
-        Args:
-            timestamp (int): Only show changes newer than this unix timestamp [_default: `0`_] (Default: 0)
-
-        Returns:
-            Tuple[Optional[List[getRecentPageChangesResult]], Optional[RPCError]]: A tuple containing (Result: Get recent page changes, Error: RPCError object)
+    async def getRecentPageChanges(self, timestamp: ReqTimestampType = 0) -> Tuple[Optional[List[GetrecentpagechangesResult]], Optional[RPCError]]:
+        """Get recent page changes: Returns a list of recent changes to wiki pages. The results can be limited to changes newer than a given timestamp. Only changes within the configured `$conf['recent']` range are returned. This is the default when no timestamp is given. **See also:** * [Config Recent](https://www.dokuwiki.org/config:recent)
+        ---
+        Returns: A tuple containing (Result: Get recent page changes, Error: RPCError object)
         """
         params = {
             "timestamp": timestamp,
         }
-        return await self._rpc_call("core.getRecentPageChanges", params, getRecentPageChangesResult)
+        return await self._rpc_call("core.getRecentPageChanges", params, GetrecentpagechangesResult)
 
-    async def getWikiTime(self) -> Tuple[Optional[int], Optional[RPCError]]:
-        """Return the current server time
-
-        Returns a Unix timestamp (seconds since 1970-01-01 00:00:00 UTC). You can use this to compensate for differences between your client's time and the server's time when working with last modified timestamps (revisions).
-
-        Returns:
-            Tuple[Optional[int], Optional[RPCError]]: A tuple containing (Result: A unix timestamp, Error: RPCError object)
+    async def getWikiTime(self) -> Tuple[Optional[ResGetwikitimeresultType], Optional[RPCError]]:
+        """Return the current server time: Returns a Unix timestamp (seconds since 1970-01-01 00:00:00 UTC). You can use this to compensate for differences between your client's time and the server's time when working with last modified timestamps (revisions).
+        ---
+        Returns: A tuple containing (Result: A unix timestamp, Error: RPCError object)
         """
         params = {
         }
         return await self._rpc_call("core.getWikiTime", params, None)
 
-    async def getWikiTitle(self) -> Tuple[Optional[str], Optional[RPCError]]:
-        """Returns the wiki title
-
-        This method is public and does not require authentication. **See also:** * [Config Title](https://www.dokuwiki.org/config:title)
-
-        Returns:
-            Tuple[Optional[str], Optional[RPCError]]: A tuple containing (Result: Returns the wiki title, Error: RPCError object)
+    async def getWikiTitle(self) -> Tuple[Optional[ResGetwikititleresultType], Optional[RPCError]]:
+        """Returns the wiki title: This method is public and does not require authentication. **See also:** * [Config Title](https://www.dokuwiki.org/config:title)
+        ---
+        Returns: A tuple containing (Result: Returns the wiki title, Error: RPCError object)
         """
         params = {
         }
         return await self._rpc_call("core.getWikiTitle", params, None)
 
-    async def getWikiVersion(self) -> Tuple[Optional[str], Optional[RPCError]]:
-        """Return DokuWiki's version
-
-        This returns the version in the form "Type Date (SHA)". Where type is either "Release" or "Git" and date is the date of the release or the date of the last commit. SHA is the short SHA of the last commit - this is only added on git checkouts. If no version can be determined "snapshot? update version XX" is returned. Where XX represents the update version number set in doku.php.
-
-        Returns:
-            Tuple[Optional[str], Optional[RPCError]]: A tuple containing (Result: The version string e.g. "Release 2023-04-04a", Error: RPCError object)
+    async def getWikiVersion(self) -> Tuple[Optional[ResGetwikiversionresultType], Optional[RPCError]]:
+        """Return DokuWiki's version: This returns the version in the form "Type Date (SHA)". Where type is either "Release" or "Git" and date is the date of the release or the date of the last commit. SHA is the short SHA of the last commit - this is only added on git checkouts. If no version can be determined "snapshot? update version XX" is returned. Where XX represents the update version number set in doku.php.
+        ---
+        Returns: A tuple containing (Result: The version string e.g. "Release 2023-04-04a", Error: RPCError object)
         """
         params = {
         }
         return await self._rpc_call("core.getWikiVersion", params, None)
 
-    async def listMedia(self, namespace: str = "", pattern: str = "", depth: int = 1, hash: bool = False) -> Tuple[Optional[List[listMediaResult]], Optional[RPCError]]:
-        """List all media files in the given namespace (and below)
-
-        Setting the `depth` to `0` and the `namespace` to `""` will return all media files in the wiki. When `pattern` is given, it needs to be a valid regular expression as understood by PHP's `preg_match()` including delimiters. The pattern is matched against the full media ID, including the namespace. **See also:** * https://www.php.net/manual/en/reference.pcre.pattern.syntax.php
-
-        Args:
-            namespace (str): The namespace to search. Empty string for root namespace [_default: `""`_] (Default: "")
-            pattern (str): A regular expression to filter the returned files [_default: `""`_] (Default: "")
-            depth (int): How deep to search. 0 for all subnamespaces [_default: `1`_] (Default: 1)
-            hash (bool): Whether to include a MD5 hash of the media content [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[List[listMediaResult]], Optional[RPCError]]: A tuple containing (Result: List all media files in the given namespace (and below), Error: RPCError object)
+    async def listMedia(self, namespace: ReqNamespaceType = "", pattern: ReqPatternType = "", depth: ReqDepthType = 1, hash: ReqHashType = False) -> Tuple[Optional[List[ListmediaResult]], Optional[RPCError]]:
+        """List all media files in the given namespace (and below): Setting the `depth` to `0` and the `namespace` to `""` will return all media files in the wiki. When `pattern` is given, it needs to be a valid regular expression as understood by PHP's `preg_match()` including delimiters. The pattern is matched against the full media ID, including the namespace. **See also:** * https://www.php.net/manual/en/reference.pcre.pattern.syntax.php
+        ---
+        Returns: A tuple containing (Result: List all media files in the given namespace (and below), Error: RPCError object)
         """
         params = {
             "namespace": namespace,
@@ -519,55 +457,34 @@ class DokuWikiClient:
             "depth": depth,
             "hash": hash,
         }
-        return await self._rpc_call("core.listMedia", params, listMediaResult)
+        return await self._rpc_call("core.listMedia", params, ListmediaResult)
 
-    async def listPages(self, namespace: str = "", depth: int = 1, hash: bool = False) -> Tuple[Optional[List[listPagesResult]], Optional[RPCError]]:
-        """List all pages in the given namespace (and below)
-
-        Setting the `depth` to `0` and the `namespace` to `""` will return all pages in the wiki. Note: author information is not available in this call.
-
-        Args:
-            namespace (str): The namespace to search. Empty string for root namespace [_default: `""`_] (Default: "")
-            depth (int): How deep to search. 0 for all subnamespaces [_default: `1`_] (Default: 1)
-            hash (bool): Whether to include a MD5 hash of the page content [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[List[listPagesResult]], Optional[RPCError]]: A tuple containing (Result: A list of matching pages, Error: RPCError object)
+    async def listPages(self, namespace: ReqNamespaceType = "", depth: ReqDepthType = 1, hash: ReqHashType = False) -> Tuple[Optional[List[ListpagesResult]], Optional[RPCError]]:
+        """List all pages in the given namespace (and below): Setting the `depth` to `0` and the `namespace` to `""` will return all pages in the wiki. Note: author information is not available in this call.
+        ---
+        Returns: A tuple containing (Result: A list of matching pages, Error: RPCError object)
         """
         params = {
             "namespace": namespace,
             "depth": depth,
             "hash": hash,
         }
-        return await self._rpc_call("core.listPages", params, listPagesResult)
+        return await self._rpc_call("core.listPages", params, ListpagesResult)
 
-    async def lockPages(self, pages: List) -> Tuple[Optional[List], Optional[RPCError]]:
-        """Lock the given set of pages
-
-        This call will try to lock all given pages. It will return a list of pages that were successfully locked. If a page could not be locked, eg. because a different user is currently holding a lock, that page will be missing from the returned list. You should always ensure that the list of returned pages matches the given list of pages. It's up to you to decide how to handle failed locking. Note: you can only lock pages that you have write access for. It is possible to create a lock for a page that does not exist, yet. Note: it is not necessary to lock a page before saving it. The `savePage()` call will automatically lock and unlock the page for you. However if you plan to do related operations on multiple pages, locking them all at once beforehand can be useful.
-
-        Args:
-            pages (List): A list of pages to lock
-
-        Returns:
-            Tuple[Optional[List], Optional[RPCError]]: A tuple containing (Result: A list of pages that were successfully locked, Error: RPCError object)
+    async def lockPages(self, pages: ReqPagesType) -> Tuple[Optional[ResLockpagesresultType], Optional[RPCError]]:
+        """Lock the given set of pages: This call will try to lock all given pages. It will return a list of pages that were successfully locked. If a page could not be locked, eg. because a different user is currently holding a lock, that page will be missing from the returned list. You should always ensure that the list of returned pages matches the given list of pages. It's up to you to decide how to handle failed locking. Note: you can only lock pages that you have write access for. It is possible to create a lock for a page that does not exist, yet. Note: it is not necessary to lock a page before saving it. The `savePage()` call will automatically lock and unlock the page for you. However if you plan to do related operations on multiple pages, locking them all at once beforehand can be useful.
+        ---
+        Returns: A tuple containing (Result: A list of pages that were successfully locked, Error: RPCError object)
         """
         params = {
             "pages": pages,
         }
         return await self._rpc_call("core.lockPages", params, None)
 
-    async def login(self, user: str, pass_: str) -> Tuple[Optional[int], Optional[RPCError]]:
-        """Login
-
-        This method is public and does not require authentication. This will use the given credentials and attempt to login the user. This will set the appropriate cookies, which can be used for subsequent requests. Use of this mechanism is discouraged. Using token authentication is preferred.
-
-        Args:
-            user (str): The user name
-            pass_ (str): The password
-
-        Returns:
-            Tuple[Optional[int], Optional[RPCError]]: A tuple containing (Result: If the login was successful, Error: RPCError object)
+    async def login(self, user: ReqUserType, pass_: ReqPassType) -> Tuple[Optional[ResLoginresultType], Optional[RPCError]]:
+        """Login: This method is public and does not require authentication. This will use the given credentials and attempt to login the user. This will set the appropriate cookies, which can be used for subsequent requests. Use of this mechanism is discouraged. Using token authentication is preferred.
+        ---
+        Returns: A tuple containing (Result: If the login was successful, Error: RPCError object)
         """
         params = {
             "user": user,
@@ -575,30 +492,19 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.login", params, None)
 
-    async def logoff(self) -> Tuple[Optional[int], Optional[RPCError]]:
-        """Log off
-
-        Attempt to log out the current user, deleting the appropriate cookies Use of this mechanism is discouraged. Using token authentication is preferred.
-
-        Returns:
-            Tuple[Optional[int], Optional[RPCError]]: A tuple containing (Result: 0 on failure, 1 on success, Error: RPCError object)
+    async def logoff(self) -> Tuple[Optional[ResLogoffresultType], Optional[RPCError]]:
+        """Log off: Attempt to log out the current user, deleting the appropriate cookies Use of this mechanism is discouraged. Using token authentication is preferred.
+        ---
+        Returns: A tuple containing (Result: 0 on failure, 1 on success, Error: RPCError object)
         """
         params = {
         }
         return await self._rpc_call("core.logoff", params, None)
 
-    async def saveMedia(self, media: str, base64: str, overwrite: bool = False) -> Tuple[Optional[bool], Optional[RPCError]]:
-        """Uploads a file to the wiki
-
-        The file data has to be passed as a base64 encoded string. **See also:** * https://en.wikipedia.org/wiki/Base64
-
-        Args:
-            media (str): media id
-            base64 (str): Base64 encoded file contents
-            overwrite (bool): Should an existing file be overwritten? [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[bool], Optional[RPCError]]: A tuple containing (Result: Should always be true, Error: RPCError object)
+    async def saveMedia(self, media: ReqMediaType, base64: ReqBase64Type, overwrite: ReqOverwriteType = False) -> Tuple[Optional[ResSavemediaresultType], Optional[RPCError]]:
+        """Uploads a file to the wiki: The file data has to be passed as a base64 encoded string. **See also:** * https://en.wikipedia.org/wiki/Base64
+        ---
+        Returns: A tuple containing (Result: Should always be true, Error: RPCError object)
         """
         params = {
             "media": media,
@@ -607,19 +513,10 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.saveMedia", params, None)
 
-    async def savePage(self, page: str, text: str, summary: str = "", isminor: bool = False) -> Tuple[Optional[bool], Optional[RPCError]]:
-        """Save a wiki page
-
-        Saves the given wiki text to the given page. If the page does not exist, it will be created. Just like in the wiki, saving an empty text will delete the page. You need write permissions for the given page and the page may not be locked by another user.
-
-        Args:
-            page (str): page id
-            text (str): wiki text
-            summary (str): edit summary [_default: `""`_] (Default: "")
-            isminor (bool): whether this is a minor edit [_default: `false`_] (Default: False)
-
-        Returns:
-            Tuple[Optional[bool], Optional[RPCError]]: A tuple containing (Result: Returns true on success, Error: RPCError object)
+    async def savePage(self, page: ReqPageType, text: ReqTextType, summary: ReqSummaryType = "", isminor: ReqIsminorType = False) -> Tuple[Optional[ResSavepageresultType], Optional[RPCError]]:
+        """Save a wiki page: Saves the given wiki text to the given page. If the page does not exist, it will be created. Just like in the wiki, saving an empty text will delete the page. You need write permissions for the given page and the page may not be locked by another user.
+        ---
+        Returns: A tuple containing (Result: Returns true on success, Error: RPCError object)
         """
         params = {
             "page": page,
@@ -629,45 +526,32 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.savePage", params, None)
 
-    async def searchPages(self, query: str) -> Tuple[Optional[List[searchPagesResult]], Optional[RPCError]]:
-        """Do a fulltext search
-
-        This executes a full text search and returns the results. The query uses the standard DokuWiki search syntax. Snippets are provided for the first 15 results only. The title is either the first heading or the page id depending on the wiki's configuration. **See also:** * [Search Syntax](https://www.dokuwiki.org/search#syntax)
-
-        Args:
-            query (str): The search query as supported by the DokuWiki search
-
-        Returns:
-            Tuple[Optional[List[searchPagesResult]], Optional[RPCError]]: A tuple containing (Result: A list of matching pages, Error: RPCError object)
+    async def searchPages(self, query: ReqQueryType) -> Tuple[Optional[List[SearchpagesResult]], Optional[RPCError]]:
+        """Do a fulltext search: This executes a full text search and returns the results. The query uses the standard DokuWiki search syntax. Snippets are provided for the first 15 results only. The title is either the first heading or the page id depending on the wiki's configuration. **See also:** * [Search Syntax](https://www.dokuwiki.org/search#syntax)
+        ---
+        Returns: A tuple containing (Result: A list of matching pages, Error: RPCError object)
         """
         params = {
             "query": query,
         }
-        return await self._rpc_call("core.searchPages", params, searchPagesResult)
+        return await self._rpc_call("core.searchPages", params, SearchpagesResult)
 
-    async def unlockPages(self, pages: List) -> Tuple[Optional[List], Optional[RPCError]]:
-        """Unlock the given set of pages
-
-        This call will try to unlock all given pages. It will return a list of pages that were successfully unlocked. If a page could not be unlocked, eg. because a different user is currently holding a lock, that page will be missing from the returned list. You should always ensure that the list of returned pages matches the given list of pages. It's up to you to decide how to handle failed unlocking. Note: you can only unlock pages that you have write access for.
-
-        Args:
-            pages (List): A list of pages to unlock
-
-        Returns:
-            Tuple[Optional[List], Optional[RPCError]]: A tuple containing (Result: A list of pages that were successfully unlocked, Error: RPCError object)
+    async def unlockPages(self, pages: ReqPagesType) -> Tuple[Optional[ResUnlockpagesresultType], Optional[RPCError]]:
+        """Unlock the given set of pages: This call will try to unlock all given pages. It will return a list of pages that were successfully unlocked. If a page could not be unlocked, eg. because a different user is currently holding a lock, that page will be missing from the returned list. You should always ensure that the list of returned pages matches the given list of pages. It's up to you to decide how to handle failed unlocking. Note: you can only unlock pages that you have write access for.
+        ---
+        Returns: A tuple containing (Result: A list of pages that were successfully unlocked, Error: RPCError object)
         """
         params = {
             "pages": pages,
         }
         return await self._rpc_call("core.unlockPages", params, None)
 
-    async def whoAmI(self) -> Tuple[Optional[whoAmIResult], Optional[RPCError]]:
+    async def whoAmI(self) -> Tuple[Optional[WhoamiResult], Optional[RPCError]]:
         """Info about the currently authenticated user
-
-        Returns:
-            Tuple[Optional[whoAmIResult], Optional[RPCError]]: A tuple containing (Result: Info about the currently authenticated user, Error: RPCError object)
+        ---
+        Returns: A tuple containing (Result: Info about the currently authenticated user, Error: RPCError object)
         """
         params = {
         }
-        return await self._rpc_call("core.whoAmI", params, whoAmIResult)
+        return await self._rpc_call("core.whoAmI", params, WhoamiResult)
 

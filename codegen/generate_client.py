@@ -6,7 +6,7 @@ from typing import Any, Dict, List, Optional
 from jinja2 import Environment
 
 # ============================================================================
-# JINJA2 TEMPLATE (Präzise Tupel-Dokumentation)
+# JINJA2 TEMPLATE (Annotated Type Registry & Models & Compact Docstrings)
 # ============================================================================
 CLIENT_TEMPLATE = """# ==============================================================================
 # AUTO-GENERATED DOKUWIKI API CLIENT
@@ -14,11 +14,19 @@ CLIENT_TEMPLATE = """# =========================================================
 # ==============================================================================
 import httpx
 import logging
-from typing import Any, Dict, List, Optional, Union, Tuple
+from typing import Any, Dict, List, Optional, Union, Tuple, Annotated
 from pydantic import BaseModel, Field
 from .config import get_settings
 
 logger = logging.getLogger(__name__)
+
+# --- REUSABLE ANNOTATED TYPES ---
+# Diese Typen definieren Struktur und Dokumentation zentral. 
+# Importiere sie in deiner server.py für die MCP Tools!
+
+{% for t in shared_types %}
+{{ t.type_name }} = Annotated[{{ t.base_type }}, Field(title="{{ t.title }}", description={{ t.description }}{% if t.default_val is not none %}, default={{ t.default_val }}{% endif %}{% if t.examples %}, examples={{ t.examples }}{% endif %})]
+{% endfor %}
 
 # --- BASE MODELS ---
 
@@ -33,7 +41,7 @@ class RPCError(BaseModel):
 class {{ model.name }}(BaseModel):
     \"\"\"{{ model.description }}\"\"\"
 {% for field in model.fields %}
-    {{ field.name }}: {{ field.type }} = Field(default={{ field.default }}, description=\"\"\"{{ field.description }}\"\"\")
+    {{ field.name }}: {{ field.annotated_type }}
 {% endfor %}
 
 {% endfor %}
@@ -50,8 +58,14 @@ class DokuWikiClient:
         self.user = username or self.settings.dokuwiki_user
         self.pwd = password or self.settings.dokuwiki_password
         self.token = token or self.settings.dokuwiki_token
-        self.auth = (self.user, self.pwd) if self.user and self.pwd else None
-        self.headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
+        
+        # Token has priority over username/password
+        if self.token:
+            self.auth = None
+            self.headers = {"Authorization": f"Bearer {self.token}"}
+        else:
+            self.auth = (self.user, self.pwd) if self.user and self.pwd else None
+            self.headers = {}
 
     async def _rpc_call(self, method: str, params: Dict[str, Any], response_model: Any = None) -> Tuple[Any, Optional[RPCError]]:
         base_url = self.settings.dokuwiki_url.rstrip("/")
@@ -86,21 +100,10 @@ class DokuWikiClient:
 
 {% for m in methods %}
     async def {{ m.func_name }}(self{% if m.args_signature %}, {{ m.args_signature }}{% endif %}) -> Tuple[Optional[{{ m.result_type_hint }}], Optional[RPCError]]:
-        \"\"\"{{ m.summary }}
-{% if m.description %}
+        \"\"\"{{ m.summary }}{% if m.description and m.description != m.summary %}: {{ m.description }}{% endif %}
 
-        {{ m.description }}
-{% endif %}
-{% if m.doc_args %}
-
-        Args:
-{% for arg in m.doc_args %}
-            {{ arg }}
-{% endfor %}
-{% endif %}
-
-        Returns:
-            Tuple[Optional[{{ m.result_type_hint }}], Optional[RPCError]]: {{ m.result_desc }}
+        ---
+        Returns: {{ m.result_desc }}
         \"\"\"
         params = {
 {% for p in m.payload %}
@@ -121,28 +124,63 @@ def map_type(openapi_type: str, item_type: str = None) -> str:
     base = mapping.get(openapi_type, "Any")
     return f"List[{item_type}]" if base == "List" and item_type else base
 
-def extract_default(description: str, schema_default: Any, param_type: str) -> str:
+def extract_default(description: str, schema_default: Any) -> Optional[str]:
+    # Direktes Schema-Default
     if schema_default is not None:
         if isinstance(schema_default, bool): return "True" if schema_default else "False"
-        return str(schema_default) if isinstance(schema_default, (int, float)) else f'"{schema_default}"'
+        # Saubere Repräsentation für ints, floats, Listen und Dicts
+        if isinstance(schema_default, (int, float, list, dict)): return repr(schema_default)
+        return f'"{schema_default}"'
+    
+    # Textbasiertes Default aus Description
     match = re.search(r'\[_default:\s*(.*?)_\]', description)
     if match:
         val = match.group(1).strip().strip('`').strip('"').strip("'")
         if val.lower() == 'true': return "True"
         if val.lower() == 'false': return "False"
-        return val if val.replace('-', '').isdigit() else f'"{val}"'
-    return "False" if "bool" in param_type else "0" if "int" in param_type else "None"
+        # Behandle [] oder {} als native Objekte
+        if val in ('[]', '{}'): return val
+        # Behandle Zahlen
+        if val.replace('.', '', 1).replace('-', '', 1).isdigit(): return val
+        return f'"{val}"'
+    return None
+
+def to_camel_case(snake_str: str) -> str:
+    components = re.split(r'[_:.-]', snake_str)
+    return "".join(x.title() for x in components)
 
 def generate_client(json_file: str, output_file: str):
     with open(json_file, 'r', encoding='utf-8') as f: spec = json.load(f)
     methods, models = [], {}
+    
+    # Globales Register für unsere Annotated Typen
+    shared_types_registry = {}
+
+    def register_type(prop_name: str, base_type: str, raw_desc: str, context: str, default_val: Optional[str] = None, examples: list = None) -> str:
+        """Registriert einen Typ (Req oder Res) mit sauberen Field-Attributen."""
+        type_name = f"{context}{to_camel_case(prop_name)}Type"
+        clean_desc = re.sub(r'\[_default:\s*.*?_\]', '', raw_desc).strip()
+        
+        ex_val = examples or []
+            
+        if type_name not in shared_types_registry:
+            shared_types_registry[type_name] = {
+                "type_name": type_name,
+                "title": prop_name,
+                "base_type": base_type,
+                # repr() sorgt dafür, dass aus dem String automatisch 'ein string mit quotes' wird
+                "description": repr(clean_desc),
+                "default_val": default_val,
+                "examples": repr(ex_val) if ex_val else None
+            }
+        return type_name
 
     for path, data in sorted(spec.get("paths", {}).items()):
         if not path.startswith('/core.'): continue
         post = data["post"]
         m_name = path.replace("/core.", "")
         
-        # --- RESPONSE ---
+        # --- RESPONSE PARSING ---
         res_schema_obj = post.get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema", {}).get("properties", {})
         result_schema = res_schema_obj.get("result", {})
         
@@ -152,44 +190,63 @@ def generate_client(json_file: str, output_file: str):
             target, is_list = result_schema["items"], True
             
         if target:
-            resp_class = f"{m_name}Result"
+            resp_class = f"{to_camel_case(m_name)}Result"
             type_hint = f"List[{resp_class}]" if is_list else resp_class
-            # Fix: Fallback für Modell-Beschreibung
             model_desc = collapse_ws(target.get("description") or post.get("summary") or f"Result for {m_name}")
             fields = []
+            
             for fn, fp in target.get("properties", {}).items():
                 ft = map_type(fp.get("type", "any"))
-                f_desc = collapse_ws(fp.get("description", "No description provided."))
+                f_desc_raw = collapse_ws(fp.get("description", "No description provided."))
+                examples = fp.get("examples", [])
+                def_val = extract_default(f_desc_raw, fp.get("default"))
+                
+                # Typ registrieren (Kontext: Res)
+                annotated_type = register_type(fn, ft, f_desc_raw, "Res", def_val, examples)
+                
                 fields.append({
                     "name": fn if not keyword.iskeyword(fn) else f"{fn}_", 
-                    "type": ft, 
-                    "default": extract_default(f_desc, fp.get("default"), ft), 
-                    "description": f_desc
+                    "annotated_type": annotated_type, 
+                    "default": def_val if def_val is not None else "None"
                 })
             models[resp_class] = {"name": resp_class, "description": model_desc, "fields": fields}
         else: 
-            type_hint = map_type(result_schema.get("type", "any"))
+            # Primitive Response
+            base_t = map_type(result_schema.get("type", "any"))
+            f_desc_raw = collapse_ws(result_schema.get("description") or "API Result")
+            def_val = extract_default(f_desc_raw, result_schema.get("default"))
+            examples = result_schema.get("examples", [])
+            
+            if base_t != "Any":
+                type_hint = register_type(m_name + "Result", base_t, f_desc_raw, "Res", def_val, examples)
+            else:
+                type_hint = base_t
 
-        # --- PARAMS ---
+        # --- PARAMS PARSING ---
         req_s = post.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
         props, req_f = req_s.get("properties", {}), set(req_s.get("required", []))
-        args_s, doc_args, payload = [], [], []
+        args_s, payload = [], []
         param_names = sorted(props.keys(), key=lambda k: k not in req_f)
         
         for p in param_names:
             p_safe = f"{p}_" if keyword.iskeyword(p) else p
             pt = map_type(props[p].get("type", "any"))
-            pd = collapse_ws(props[p].get("description", ""))
+            pd_raw = collapse_ws(props[p].get("description", ""))
+            examples = props[p].get("examples", [])
+            def_val = extract_default(pd_raw, props[p].get("default"))
+            
+            # Typ registrieren (Kontext: Req)
+            annotated_type = register_type(p, pt, pd_raw, "Req", def_val, examples)
+            
             if p in req_f:
-                args_s.append(f"{p_safe}: {pt}")
-                doc_args.append(f"{p_safe} ({pt}): {pd}")
+                args_s.append(f"{p_safe}: {annotated_type}")
             else:
-                dv = extract_default(pd, props[p].get("default"), pt)
-                args_s.append(f"{p_safe}: {pt} = {dv}")
-                doc_args.append(f"{p_safe} ({pt}): {pd} (Default: {dv})")
+                # Fallback, falls weder im Text noch im Schema ein Default stand, aber Parameter optional ist
+                dv = def_val if def_val is not None else ("False" if "bool" in pt else "0" if "int" in pt else "None")
+                args_s.append(f"{p_safe}: {annotated_type} = {dv}")
+            
             payload.append({"key": p, "val": p_safe})
 
-        # Fix: Präzise Tupel-Beschreibung für Returns
         raw_res_desc = collapse_ws(result_schema.get("description") or post.get("summary") or "the API result")
         result_doc_desc = f"A tuple containing (Result: {raw_res_desc}, Error: RPCError object)"
 
@@ -198,11 +255,19 @@ def generate_client(json_file: str, output_file: str):
             "summary": collapse_ws(post.get("summary", "No summary")), 
             "description": collapse_ws(post.get("description", "")),
             "result_type_hint": type_hint, "result_desc": result_doc_desc,
-            "args_signature": ", ".join(args_s), "doc_args": doc_args, "payload": payload, "response_class": resp_class
+            "args_signature": ", ".join(args_s), "payload": payload, "response_class": resp_class
         })
 
+    # Sortieren für konsistente Generierung
+    shared_types_list = sorted(shared_types_registry.values(), key=lambda x: x["type_name"])
+
     env = Environment(trim_blocks=True, lstrip_blocks=True)
-    with open(output_file, 'w', encoding='utf-8') as f: f.write(env.from_string(CLIENT_TEMPLATE).render(methods=methods, models=models.values()))
+    with open(output_file, 'w', encoding='utf-8') as f: 
+        f.write(env.from_string(CLIENT_TEMPLATE).render(
+            methods=methods, 
+            models=models.values(),
+            shared_types=shared_types_list
+        ))
     print(f"Client generiert: {output_file}")
 
 if __name__ == "__main__":

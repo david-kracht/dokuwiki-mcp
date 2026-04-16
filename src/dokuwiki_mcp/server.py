@@ -9,9 +9,8 @@ Design contract for agents and tooling:
 """
 import difflib
 import base64
-import inspect
 import logging
-from typing import Any, List, Optional, Union, get_args, get_origin
+from typing import Any, List, Optional, Union
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import PromptMessage, TextContent
@@ -21,17 +20,58 @@ from .config import get_settings
 from .client import (
     DokuWikiClient,
     RPCError,
-    getMediaHistoryResult,
-    getMediaInfoResult,
-    getPageHistoryResult,
-    getPageInfoResult,
-    getPageLinksResult,
-    getRecentMediaChangesResult,
-    getRecentPageChangesResult,
-    listMediaResult,
-    listPagesResult,
-    searchPagesResult,
-    whoAmIResult,
+    # Request parameter types
+    ReqAuthorType,
+    ReqBase64Type,
+    ReqDepthType,
+    ReqFirstType,
+    ReqGroupsType,
+    ReqHashType,
+    ReqIsminorType,
+    ReqMediaType,
+    ReqNamespaceType,
+    ReqOverwriteType,
+    ReqPageType,
+    ReqPagesType,
+    ReqPassType,
+    ReqPatternType,
+    ReqQueryType,
+    ReqRevType,
+    ReqSummaryType,
+    ReqTextType,
+    ReqTimestampType,
+    ReqUserType,
+    # Response result types
+    ResAclcheckresultType,
+    ResAppendpageresultType,
+    ResDeletemediaresultType,
+    ResGetapiversionresultType,
+    ResGetmediaresultType,
+    ResGetmediausageresultType,
+    ResGetpagebacklinksresultType,
+    ResGetpagehtmlresultType,
+    ResGetpageresultType,
+    ResGetwikitimeresultType,
+    ResGetwikititleresultType,
+    ResGetwikiversionresultType,
+    ResLockpagesresultType,
+    ResLoginresultType,
+    ResLogoffresultType,
+    ResSavemediaresultType,
+    ResSavepageresultType,
+    ResUnlockpagesresultType,
+    # Result models
+    GetmediahistoryResult,
+    GetmediainfoResult,
+    GetpagehistoryResult,
+    GetpageinfoResult,
+    GetpagelinksResult,
+    GetrecentmediachangesResult,
+    GetrecentpagechangesResult,
+    ListmediaResult,
+    ListpagesResult,
+    SearchpagesResult,
+    WhoamiResult,
 )
 
 # --- LOGGING SETUP ---
@@ -45,104 +85,11 @@ mcp = FastMCP("DokuWiki")
 # ==============================================================================
 
 # Dies ist der globale Scope, den das LLM bei JEDEM Tool sehen wird.
-COMMON_CONTEXT = """
-MCP Domain:Wiki,DokuWiki.
-"""
+COMMON_CONTEXT = "Wiki,DokuWiki,API:"
 # Knowledge, Projects, Stations, Documentation
 # Internal knowledge, Project documentation, Product documentation, Manuals, Guides,
 # How-tos, Troubleshooting, Technical details, Instructions, Installation, Configuration,
 # Customer support, Internal tools, Internal processes, Internal documents
-
-COMMON_CONTEXT = ' '.join(COMMON_CONTEXT.split())
-
-PARAM_IMPACT_HINTS = {
-    "page": "Target wiki page (identifier).",
-    "media": "Target wiki media (identifier).",
-    "text": "Raw DokuWiki markup.",
-    "summary": "Edit summary (revision metadata).",
-    "isminor": "Flag for minor edit.",
-    "user": "User to check ACL or to login as.",
-    "groups": "Group (context ACL).",
-    "rev": "Historical revision number (0 for latest).",
-    "first": "Skip newest first newest revisions (0 for revision 0).",
-    "author": "Include author metadata.",
-    "hash": "Include MD5 content hash.",
-    "timestamp": "Filter changes newer than timestamp.",
-    "namespace": "Namespace subtree for pages.",
-    "pattern": "Regex filter for media listings.",
-    "depth": "Namespace traversal depth.",
-    "pages": "Set of page IDs to lock/unlock.",
-    "query": "Full-text search expression (DokuWiki specific syntax).",
-    "pass_": "Password for login.",
-    "base64": "Base64-encoded binary payload (string)",
-    "overwrite": "Allow replacing existing media.",
-    "ctx": "Forward auth header from context.",
-    "topic": "Research topic for wiki investigation."
-}
-
-
-def _annotation_to_text(annotation: Any) -> str:
-    if annotation is inspect._empty:
-        return "Any"
-    if hasattr(annotation, "__name__"):
-        return annotation.__name__
-    text = str(annotation)
-    return text.replace("typing.", "")
-
-
-def _default_to_text(value: Any) -> str:
-    if value is inspect._empty:
-        return "required"
-    return repr(value)
-
-
-def _split_return_annotation(annotation: Any) -> tuple[str, str]:
-    if annotation is inspect._empty:
-        return "Any", "RPCError"
-
-    origin = get_origin(annotation)
-    args = get_args(annotation)
-    if origin is Union and args:
-        non_error = []
-        has_error = False
-        for arg in args:
-            arg_text = _annotation_to_text(arg)
-            if arg_text == "RPCError":
-                has_error = True
-            else:
-                non_error.append(arg_text)
-        success_text = " | ".join(non_error) if non_error else "Any"
-        error_text = "RPCError" if has_error else "None"
-        return success_text, error_text
-
-    return _annotation_to_text(annotation), "RPCError"
-
-
-def _build_parameter_section(func) -> str:
-    signature = inspect.signature(func)
-    lines = []
-    for name, param in signature.parameters.items():
-        impact = PARAM_IMPACT_HINTS.get(
-            name,
-            "Affects server-side request scope or result shape based on provided value.",
-        )
-        lines.append(f"- {name}: {impact}")
-
-    if not lines:
-        lines.append("- none (resource endpoint without API parameters).")
-
-    return "Params:\n" + "\n".join(lines)
-
-
-def _build_return_section(func) -> str:
-    signature = inspect.signature(func)
-    success_text, error_text = _split_return_annotation(signature.return_annotation)
-    lines = [
-        f"{success_text} (success)",
-        f"{error_text} (error)",
-    ]
-    return "Returns: " + " or ".join(lines)
-
 
 def common_context(func):
     """
@@ -150,12 +97,10 @@ def common_context(func):
     existierenden Docstring der Funktion anhängt.
     """
     specific = (func.__doc__ or "").strip()
-    sections = [f"{COMMON_CONTEXT}."]
+    sections = [COMMON_CONTEXT]
     if specific:
         sections.append(specific)
-    sections.append(_build_parameter_section(func))
-    sections.append(_build_return_section(func))
-    func.__doc__ = "\n\n".join(sections)
+    func.__doc__ = " ".join(sections)
     return func
 
 # ==============================================================================
@@ -207,7 +152,7 @@ def _unwrap(result: Any, err: Optional[RPCError]) -> Any:
 
 @mcp.resource("dokuwiki://core/getAPIVersion")
 @common_context
-async def wiki_getAPIVersion(ctx: Context = None) -> Union[int, RPCError]:
+async def wiki_getAPIVersion(ctx: Context = None) -> Union[ResGetapiversionresultType, RPCError]:
     """Purpose: Returns the DokuWiki JSON-RPC API version number.
     Use when: Deciding compatibility before calling version-dependent API methods.
     Avoid when: Wiki release diagnostics are needed; use wiki_getWikiVersion for product version details."""
@@ -218,7 +163,7 @@ async def wiki_getAPIVersion(ctx: Context = None) -> Union[int, RPCError]:
 
 @mcp.resource("dokuwiki://core/getWikiTime")
 @common_context
-async def wiki_getWikiTime(ctx: Context = None) -> Union[int, RPCError]:
+async def wiki_getWikiTime(ctx: Context = None) -> Union[ResGetwikitimeresultType, RPCError]:
     """Purpose: Returns the current wiki server Unix timestamp.
     Use when: Building time-based queries (rev/timestamp windows) to avoid client clock drift.
     Avoid when: Inspecting content revisions; use wiki_getPageHistory or wiki_getMediaHistory for revision timelines."""
@@ -229,7 +174,7 @@ async def wiki_getWikiTime(ctx: Context = None) -> Union[int, RPCError]:
 
 @mcp.resource("dokuwiki://core/getWikiTitle")
 @common_context
-async def wiki_getWikiTitle(ctx: Context = None) -> Union[str, RPCError]:
+async def wiki_getWikiTitle(ctx: Context = None) -> Union[ResGetwikititleresultType, RPCError]:
     """Purpose: Returns the configured wiki title string.
     Use when: An agent needs the canonical site label for UI messages, reports, or context grounding.
     Avoid when: Authentication or permission decisions are needed; use wiki_whoAmI and wiki_aclCheck instead."""
@@ -240,7 +185,7 @@ async def wiki_getWikiTitle(ctx: Context = None) -> Union[str, RPCError]:
 
 @mcp.resource("dokuwiki://core/getWikiVersion")
 @common_context
-async def wiki_getWikiVersion(ctx: Context = None) -> Union[str, RPCError]:
+async def wiki_getWikiVersion(ctx: Context = None) -> Union[ResGetwikiversionresultType, RPCError]:
     """Purpose: Returns the DokuWiki application version string.
     Use when: Troubleshooting, feature gating, and environment diagnostics tied to DokuWiki release behavior.
     Avoid when: JSON-RPC protocol compatibility is needed; use wiki_getAPIVersion for API-level compatibility checks."""
@@ -251,7 +196,7 @@ async def wiki_getWikiVersion(ctx: Context = None) -> Union[str, RPCError]:
 
 @mcp.resource("dokuwiki://core/whoAmI")
 @common_context
-async def wiki_whoAmI(ctx: Context = None) -> Union[whoAmIResult, RPCError]:
+async def wiki_whoAmI(ctx: Context = None) -> Union[WhoamiResult, RPCError]:
     """Purpose: Returns the authenticated identity (user and roles/groups) for the active session.
     Use when: Permission-sensitive operations require confirmed execution context.
     Avoid when: Credential authentication is needed; use wiki_login for explicit login."""
@@ -262,7 +207,7 @@ async def wiki_whoAmI(ctx: Context = None) -> Union[whoAmIResult, RPCError]:
 
 @mcp.resource("dokuwiki://core/logoff")
 @common_context
-async def wiki_logoff(ctx: Context = None) -> Union[int, RPCError]:
+async def wiki_logoff(ctx: Context = None) -> Union[ResLogoffresultType, RPCError]:
     """Purpose: Logs off the current authenticated session and returns a success indicator.
     Use when: An agent explicitly needs to terminate a cookie/session-based login.
     Avoid when: Permission reset or token revocation is intended; this is not a substitute for ACL checks or token lifecycle control."""
@@ -276,7 +221,7 @@ async def wiki_logoff(ctx: Context = None) -> Union[int, RPCError]:
 
 @mcp.tool()
 @common_context
-async def wiki_aclCheck(page: str, user: str = "", groups: List = "[]", ctx: Context = None) -> Union[int, RPCError]:
+async def wiki_aclCheck(page: ReqPageType, user: ReqUserType = "", groups: ReqGroupsType = [], ctx: Context = None) -> Union[ResAclcheckresultType, RPCError]:
     """Purpose: Returns effective ACL permission level for a page/media target, optionally for a specified user/groups context.
     Use when: Write, delete, lock, or media operations require permission validation.
     Avoid when: Content discovery or search is needed; this endpoint only evaluates access rights."""
@@ -287,7 +232,7 @@ async def wiki_aclCheck(page: str, user: str = "", groups: List = "[]", ctx: Con
 
 @mcp.tool()
 @common_context
-async def wiki_appendPage(page: str, text: str, summary: str = "", isminor: bool = False, ctx: Context = None) -> Union[bool, RPCError]:
+async def wiki_appendPage(page: ReqPageType, text: ReqTextType, summary: ReqSummaryType = "", isminor: ReqIsminorType = False, ctx: Context = None) -> Union[ResAppendpageresultType, RPCError]:
     """Purpose: Appends raw DokuWiki markup to the end of an existing page and creates a new revision.
     Use when: Additive updates (logs, notes, changelog entries) should preserve existing page content.
     Avoid when: Full-page replacement or structured rewrite is required; use wiki_savePage instead."""
@@ -298,7 +243,7 @@ async def wiki_appendPage(page: str, text: str, summary: str = "", isminor: bool
 
 @mcp.tool()
 @common_context
-async def wiki_deleteMedia(media: str, ctx: Context = None) -> Union[bool, RPCError]:
+async def wiki_deleteMedia(media: ReqMediaType, ctx: Context = None) -> Union[ResDeletemediaresultType, RPCError]:
     """Purpose: Permanently deletes a media file by media ID/path.
     Use when: Obsolete or invalid binary assets must be removed intentionally.
     Avoid when: Only metadata, usage analysis, or replacement upload is needed; use wiki_getMediaInfo, wiki_getMediaUsage, or wiki_saveMedia."""
@@ -309,7 +254,7 @@ async def wiki_deleteMedia(media: str, ctx: Context = None) -> Union[bool, RPCEr
 
 @mcp.tool()
 @common_context
-async def wiki_getMedia(media: str, rev: int = 0, ctx: Context = None) -> Union[str, RPCError]:
+async def wiki_getMedia(media: ReqMediaType, rev: ReqRevType = 0, ctx: Context = None) -> Union[ResGetmediaresultType, RPCError]:
     """Purpose: Returns Base64-encoded binary content for a media file (latest or specified revision timestamp).
     Use when: The actual file payload is needed for download, transformation, or external processing.
     Avoid when: Metadata checks, link impact checks, or history browsing is needed; use wiki_getMediaInfo, wiki_getMediaUsage, or wiki_getMediaHistory."""
@@ -320,7 +265,7 @@ async def wiki_getMedia(media: str, rev: int = 0, ctx: Context = None) -> Union[
 
 @mcp.tool()
 @common_context
-async def wiki_getMediaHistory(media: str, first: int = 0, ctx: Context = None) -> Union[List[getMediaHistoryResult], RPCError]:
+async def wiki_getMediaHistory(media: ReqMediaType, first: ReqFirstType = 0, ctx: Context = None) -> Union[List[GetmediahistoryResult], RPCError]:
     """Purpose: Returns revision history entries for a media file with optional offset pagination.
     Use when: Auditing change chronology or selecting a historical media revision.
     Avoid when: Media bytes are needed; use wiki_getMedia."""
@@ -331,7 +276,7 @@ async def wiki_getMediaHistory(media: str, first: int = 0, ctx: Context = None) 
 
 @mcp.tool()
 @common_context
-async def wiki_getMediaInfo(media: str, rev: int = 0, author: bool = False, hash: bool = False, ctx: Context = None) -> Union[getMediaInfoResult, RPCError]:
+async def wiki_getMediaInfo(media: ReqMediaType, rev: ReqRevType = 0, author: ReqAuthorType = False, hash: ReqHashType = False, ctx: Context = None) -> Union[GetmediainfoResult, RPCError]:
     """Purpose: Returns technical metadata for a media file (size, revision info, and optional author/hash fields).
     Use when: Validation, deduplication, or preflight checks are needed before media mutation.
     Avoid when: Full binary content is required; use wiki_getMedia."""
@@ -342,7 +287,7 @@ async def wiki_getMediaInfo(media: str, rev: int = 0, author: bool = False, hash
 
 @mcp.tool()
 @common_context
-async def wiki_getMediaUsage(media: str, ctx: Context = None) -> Union[List[Any], RPCError]:
+async def wiki_getMediaUsage(media: ReqMediaType, ctx: Context = None) -> Union[ResGetmediausageresultType, RPCError]:
     """Purpose: Returns pages that reference a specific media object.
     Use when: Deleting or replacing media requires downstream impact analysis.
     Avoid when: Listing all media in a namespace is needed; use wiki_listMedia."""
@@ -353,7 +298,7 @@ async def wiki_getMediaUsage(media: str, ctx: Context = None) -> Union[List[Any]
 
 @mcp.tool()
 @common_context
-async def wiki_getPage(page: str, rev: int = 0, ctx: Context = None) -> Union[str, RPCError]:
+async def wiki_getPage(page: ReqPageType, rev: ReqRevType = 0, ctx: Context = None) -> Union[ResGetpageresultType, RPCError]:
     """Purpose: Returns raw DokuWiki markup for a page (latest or specified historical revision).
     Use when: Editable source text is needed for analysis, patching, or controlled rewrite workflows.
     Avoid when: Rendered view output is needed; use wiki_getPageHTML."""
@@ -364,7 +309,7 @@ async def wiki_getPage(page: str, rev: int = 0, ctx: Context = None) -> Union[st
 
 @mcp.tool()
 @common_context
-async def wiki_getPageBackLinks(page: str, ctx: Context = None) -> Union[List[Any], RPCError]:
+async def wiki_getPageBackLinks(page: ReqPageType, ctx: Context = None) -> Union[ResGetpagebacklinksresultType, RPCError]:
     """Purpose: Returns pages that link to the target page (inbound references/backlinks).
     Use when: Renaming, moving, or deleting pages requires incoming dependency analysis.
     Avoid when: Outbound link extraction from the page itself is needed; use wiki_getPageLinks."""
@@ -375,7 +320,7 @@ async def wiki_getPageBackLinks(page: str, ctx: Context = None) -> Union[List[An
 
 @mcp.tool()
 @common_context
-async def wiki_getPageHTML(page: str, rev: int = 0, ctx: Context = None) -> Union[str, RPCError]:
+async def wiki_getPageHTML(page: ReqPageType, rev: ReqRevType = 0, ctx: Context = None) -> Union[ResGetpagehtmlresultType, RPCError]:
     """Purpose: Returns rendered HTML for a page revision.
     Use when: Downstream systems require rendered structure, preview output, or HTML parsing.
     Avoid when: Editing or diffing source wiki syntax is needed; use wiki_getPage."""
@@ -386,7 +331,7 @@ async def wiki_getPageHTML(page: str, rev: int = 0, ctx: Context = None) -> Unio
 
 @mcp.tool()
 @common_context
-async def wiki_getPageHistory(page: str, first: int = 0, ctx: Context = None) -> Union[List[getPageHistoryResult], RPCError]:
+async def wiki_getPageHistory(page: ReqPageType, first: ReqFirstType = 0, ctx: Context = None) -> Union[List[GetpagehistoryResult], RPCError]:
     """Purpose: Returns revision history entries for a page with optional offset pagination.
     Use when: Audit trails, rollback decisions, and revision navigation are needed.
     Avoid when: The actual page body for a revision is needed; use wiki_getPage with rev."""
@@ -397,7 +342,7 @@ async def wiki_getPageHistory(page: str, first: int = 0, ctx: Context = None) ->
 
 @mcp.tool()
 @common_context
-async def wiki_getPageInfo(page: str, rev: int = 0, author: bool = False, hash: bool = False, ctx: Context = None) -> Union[getPageInfoResult, RPCError]:
+async def wiki_getPageInfo(page: ReqPageType, rev: ReqRevType = 0, author: ReqAuthorType = False, hash: ReqHashType = False, ctx: Context = None) -> Union[GetpageinfoResult, RPCError]:
     """Purpose: Returns technical metadata for a page (revision, size, permissions, optional author/hash details).
     Use when: Lightweight inspection is needed before deciding to read or update full content.
     Avoid when: Full source text or rendered output is needed; use wiki_getPage or wiki_getPageHTML."""
@@ -408,7 +353,7 @@ async def wiki_getPageInfo(page: str, rev: int = 0, author: bool = False, hash: 
 
 @mcp.tool()
 @common_context
-async def wiki_getPageLinks(page: str, ctx: Context = None) -> Union[List[getPageLinksResult], RPCError]:
+async def wiki_getPageLinks(page: ReqPageType, ctx: Context = None) -> Union[List[GetpagelinksResult], RPCError]:
     """Purpose: Returns all outbound links contained in a page (internal, external, and interwiki).
     Use when: Link graph extraction, validation, or migration impact analysis is needed.
     Avoid when: Inbound reference discovery is needed; use wiki_getPageBackLinks."""
@@ -419,7 +364,7 @@ async def wiki_getPageLinks(page: str, ctx: Context = None) -> Union[List[getPag
 
 @mcp.tool()
 @common_context
-async def wiki_getRecentMediaChanges(timestamp: int = 0, ctx: Context = None) -> Union[List[getRecentMediaChangesResult], RPCError]:
+async def wiki_getRecentMediaChanges(timestamp: ReqTimestampType = 0, ctx: Context = None) -> Union[List[GetrecentmediachangesResult], RPCError]:
     """Purpose: Returns recent media changes, optionally filtered to events newer than a Unix timestamp.
     Use when: Polling, incremental sync, or change-feed workflows for media assets are required.
     Avoid when: Full historical audit of one media item is needed; use wiki_getMediaHistory."""
@@ -430,7 +375,7 @@ async def wiki_getRecentMediaChanges(timestamp: int = 0, ctx: Context = None) ->
 
 @mcp.tool()
 @common_context
-async def wiki_getRecentPageChanges(timestamp: int = 0, ctx: Context = None) -> Union[List[getRecentPageChangesResult], RPCError]:
+async def wiki_getRecentPageChanges(timestamp: ReqTimestampType = 0, ctx: Context = None) -> Union[List[GetrecentpagechangesResult], RPCError]:
     """Purpose: Returns recent page changes, optionally filtered to events newer than a Unix timestamp.
     Use when: Incremental page indexing, event polling, or delta-based synchronization is needed.
     Avoid when: Relevance-ranked content search is needed; use wiki_searchPages."""
@@ -441,7 +386,7 @@ async def wiki_getRecentPageChanges(timestamp: int = 0, ctx: Context = None) -> 
 
 @mcp.tool()
 @common_context
-async def wiki_listMedia(namespace: str = "", pattern: str = "", depth: int = 1, hash: bool = False, ctx: Context = None) -> Union[List[listMediaResult], RPCError]:
+async def wiki_listMedia(namespace: ReqNamespaceType = "", pattern: ReqPatternType = "", depth: ReqDepthType = 1, hash: ReqHashType = False, ctx: Context = None) -> Union[List[ListmediaResult], RPCError]:
     """Purpose: Lists media files in a namespace tree with optional regex filtering, depth limit, and optional hash output.
     Use when: Namespace inventory, crawl, or batch media management is required.
     Avoid when: Content-based discovery is needed; this is not a full-text search endpoint."""
@@ -452,7 +397,7 @@ async def wiki_listMedia(namespace: str = "", pattern: str = "", depth: int = 1,
 
 @mcp.tool()
 @common_context
-async def wiki_listPages(namespace: str = "", depth: int = 1, hash: bool = False, ctx: Context = None) -> Union[List[listPagesResult], RPCError]:
+async def wiki_listPages(namespace: ReqNamespaceType = "", depth: ReqDepthType = 1, hash: ReqHashType = False, ctx: Context = None) -> Union[List[ListpagesResult], RPCError]:
     """Purpose: Lists pages in a namespace hierarchy with configurable traversal depth and optional hash values.
     Use when: Structural navigation, inventory generation, or scoped batch operations are required.
     Avoid when: Keyword relevance search across page content is needed; use wiki_searchPages."""
@@ -463,7 +408,7 @@ async def wiki_listPages(namespace: str = "", depth: int = 1, hash: bool = False
 
 @mcp.tool()
 @common_context
-async def wiki_lockPages(pages: List, ctx: Context = None) -> Union[List[Any], RPCError]:
+async def wiki_lockPages(pages: ReqPagesType, ctx: Context = None) -> Union[ResLockpagesresultType, RPCError]:
     """Purpose: Attempts to lock multiple pages and returns the subset successfully locked.
     Use when: Coordinated multi-page edits need conflict reduction.
     Avoid when: Permission probing or authentication checks are intended; use wiki_aclCheck and wiki_whoAmI."""
@@ -474,7 +419,7 @@ async def wiki_lockPages(pages: List, ctx: Context = None) -> Union[List[Any], R
 
 @mcp.tool()
 @common_context
-async def wiki_login(user: str, pass_: str, ctx: Context = None) -> Union[int, RPCError]:
+async def wiki_login(user: ReqUserType, pass_: ReqPassType, ctx: Context = None) -> Union[ResLoginresultType, RPCError]:
     """Purpose: Performs explicit credential login and returns the login status indicator.
     Use when: An authenticated session must be established with username/password.
     Avoid when: Identity introspection of an already-authenticated session is needed; use wiki_whoAmI."""
@@ -485,7 +430,7 @@ async def wiki_login(user: str, pass_: str, ctx: Context = None) -> Union[int, R
 
 @mcp.tool()
 @common_context
-async def wiki_saveMedia(media: str, base64: str, overwrite: bool = False, ctx: Context = None) -> Union[bool, RPCError]:
+async def wiki_saveMedia(media: ReqMediaType, base64: ReqBase64Type, overwrite: ReqOverwriteType = False, ctx: Context = None) -> Union[ResSavemediaresultType, RPCError]:
     """Purpose: Uploads Base64-encoded media content and optionally overwrites an existing media object.
     Use when: Creating or updating binary attachments and media assets.
     Avoid when: Textual page updates are needed; use wiki_savePage or wiki_appendPage."""
@@ -496,7 +441,7 @@ async def wiki_saveMedia(media: str, base64: str, overwrite: bool = False, ctx: 
 
 @mcp.tool()
 @common_context
-async def wiki_savePage(page: str, text: str, summary: str = "", isminor: bool = False, ctx: Context = None) -> Union[bool, RPCError]:
+async def wiki_savePage(page: ReqPageType, text: ReqTextType, summary: ReqSummaryType = "", isminor: ReqIsminorType = False, ctx: Context = None) -> Union[ResSavepageresultType, RPCError]:
     """Purpose: Creates a page or fully replaces page content with provided raw wiki syntax.
     Use when: Target page content should be set to a specific complete state.
     Avoid when: Additive-only updates should preserve existing content; use wiki_appendPage."""
@@ -506,18 +451,7 @@ async def wiki_savePage(page: str, text: str, summary: str = "", isminor: bool =
 
 @mcp.tool()
 @common_context
-async def wiki_searchPages(query: str, ctx: Context = None) -> Union[List[searchPagesResult], RPCError]:
-    """Purpose: Executes DokuWiki full-text query syntax and returns scored page matches with snippets when available.
-    Use when: Keyword-driven discovery is needed and page IDs or namespaces are unknown.
-    Avoid when: Deterministic namespace inventory is needed; use wiki_listPages."""
-    client = get_client(ctx)
-    result, err = await client.searchPages(query=query)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool()
-@common_context
-async def wiki_unlockPages(pages: List, ctx: Context = None) -> Union[List[Any], RPCError]:
+async def wiki_unlockPages(pages: ReqPagesType, ctx: Context = None) -> Union[ResUnlockpagesresultType, RPCError]:
     """Purpose: Attempts to unlock multiple pages and returns the subset successfully unlocked.
     Use when: Locks must be released after coordinated edit workflows.
     Avoid when: Saving or conflict resolution logic is required; this endpoint only changes lock state."""
@@ -615,7 +549,7 @@ def get_markdown_link(page: str, title: str = None) -> str:
 # --- TOOL 1: SUCHE MIT FERTIGEN LINKS ---
 @mcp.tool()
 @common_context
-async def wiki_searchPages(query: str, ctx: Context = None) -> str:
+async def wiki_searchPages(query: ReqQueryType, ctx: Context = None) -> str:
     """
     Sucht im Wiki. Liefert klickbare Markdown-Links zurück, 
     die der Agent direkt an den User weitergeben MUSS.
@@ -641,7 +575,7 @@ async def wiki_searchPages(query: str, ctx: Context = None) -> str:
 # --- TOOL 2: DAS PREVIEW / DIFF TOOL ---
 @mcp.tool()
 @common_context
-async def wiki_preview_edit(page: str, new_content: str, ctx: Context = None) -> str:
+async def wiki_preview_edit(page: ReqPageType, new_content: ReqTextType, ctx: Context = None) -> str:
     """
     Zeigt einen Markdown-Diff VOR dem Speichern.
     """
@@ -683,7 +617,9 @@ async def wiki_preview_edit(page: str, new_content: str, ctx: Context = None) ->
 
 if __name__ == "__main__":
     import os
-    if os.environ.get("MCP_TRANSPORT", "sse").lower() == "sse":
+    transport = os.environ.get("MCP_TRANSPORT", "stdio").lower()
+
+    if transport != "stdio":
         import uvicorn
         
         original_init = uvicorn.Config.__init__
@@ -716,6 +652,6 @@ if __name__ == "__main__":
             
             original_init(self, *args, **kwargs)
         uvicorn.Config.__init__ = patched_init
-        mcp.run(transport="sse")
-    else:
-        mcp.run(transport="stdio")
+
+
+    mcp.run(transport="sse" if transport != "stdio" else "stdio")
