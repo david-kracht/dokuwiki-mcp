@@ -1,7 +1,7 @@
 {
   "servers": {
     "dokuwiki": {
-      "url": "http://localhost:8000/sse",
+      "url": "http://localhost:8000/mcp",
       "headers": { 
         "Authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJkb2t1d2lraSIsInN1YiI6Im1jcC13cml0ZSIsImlhdCI6MTc3NTk0MzU1NH0=.hhQNhX96m2ZTEAg31mMZYNmiv/UDUQEva1WpE1puZbw="
       }

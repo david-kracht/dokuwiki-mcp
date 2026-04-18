@@ -128,7 +128,6 @@ def extract_default(description: str, schema_default: Any) -> Optional[str]:
     # Direktes Schema-Default
     if schema_default is not None:
         if isinstance(schema_default, bool): return "True" if schema_default else "False"
-        # Saubere Repräsentation für ints, floats, Listen und Dicts
         if isinstance(schema_default, (int, float, list, dict)): return repr(schema_default)
         return f'"{schema_default}"'
     
@@ -138,16 +137,18 @@ def extract_default(description: str, schema_default: Any) -> Optional[str]:
         val = match.group(1).strip().strip('`').strip('"').strip("'")
         if val.lower() == 'true': return "True"
         if val.lower() == 'false': return "False"
-        # Behandle [] oder {} als native Objekte
         if val in ('[]', '{}'): return val
-        # Behandle Zahlen
         if val.replace('.', '', 1).replace('-', '', 1).isdigit(): return val
         return f'"{val}"'
     return None
 
-def to_camel_case(snake_str: str) -> str:
-    components = re.split(r'[_:.-]', snake_str)
-    return "".join(x.title() for x in components)
+def to_pascal_case(s: str) -> str:
+    """Wandelt snake_case oder camelCase in PascalCase um, ohne bestehendes camelCase zu zerstören."""
+    if not s:
+        return ""
+    components = re.split(r'[_:.-]', s)
+    # Mache nur den allerersten Buchstaben jedes Blocks groß, lass den Rest unangetastet
+    return "".join(c[0].upper() + c[1:] if len(c) > 0 else "" for c in components)
 
 def generate_client(json_file: str, output_file: str):
     with open(json_file, 'r', encoding='utf-8') as f: spec = json.load(f)
@@ -157,10 +158,22 @@ def generate_client(json_file: str, output_file: str):
     shared_types_registry = {}
 
     def register_type(prop_name: str, base_type: str, raw_desc: str, context: str, default_val: Optional[str] = None, examples: list = None) -> str:
-        """Registriert einen Typ (Req oder Res) mit sauberen Field-Attributen."""
-        type_name = f"{context}{to_camel_case(prop_name)}Type"
-        clean_desc = re.sub(r'\[_default:\s*.*?_\]', '', raw_desc).strip()
+        """Registriert einen Typ mit intelligenten Request/Response Suffixen."""
+        base_name = to_pascal_case(prop_name)
         
+        # Intelligente Suffix-Vergabe zur Vermeidung von Redundanz (z.B. ResultResponseType)
+        if context == "Req":
+            if base_name.endswith("Request"):
+                type_name = f"{base_name}Type"
+            else:
+                type_name = f"{base_name}RequestType"
+        else: # context == "Res"
+            if base_name.endswith("Result") or base_name.endswith("Response"):
+                type_name = f"{base_name}Type"
+            else:
+                type_name = f"{base_name}ResponseType"
+
+        clean_desc = re.sub(r'\[_default:\s*.*?_\]', '', raw_desc).strip()
         ex_val = examples or []
             
         if type_name not in shared_types_registry:
@@ -168,7 +181,6 @@ def generate_client(json_file: str, output_file: str):
                 "type_name": type_name,
                 "title": prop_name,
                 "base_type": base_type,
-                # repr() sorgt dafür, dass aus dem String automatisch 'ein string mit quotes' wird
                 "description": repr(clean_desc),
                 "default_val": default_val,
                 "examples": repr(ex_val) if ex_val else None
@@ -190,7 +202,8 @@ def generate_client(json_file: str, output_file: str):
             target, is_list = result_schema["items"], True
             
         if target:
-            resp_class = f"{to_camel_case(m_name)}Result"
+            # PascalCase für die Pydantic Klasse
+            resp_class = f"{to_pascal_case(m_name)}Result"
             type_hint = f"List[{resp_class}]" if is_list else resp_class
             model_desc = collapse_ws(target.get("description") or post.get("summary") or f"Result for {m_name}")
             fields = []
@@ -201,13 +214,11 @@ def generate_client(json_file: str, output_file: str):
                 examples = fp.get("examples", [])
                 def_val = extract_default(f_desc_raw, fp.get("default"))
                 
-                # Typ registrieren (Kontext: Res)
                 annotated_type = register_type(fn, ft, f_desc_raw, "Res", def_val, examples)
                 
                 fields.append({
                     "name": fn if not keyword.iskeyword(fn) else f"{fn}_", 
-                    "annotated_type": annotated_type, 
-                    "default": def_val if def_val is not None else "None"
+                    "annotated_type": annotated_type
                 })
             models[resp_class] = {"name": resp_class, "description": model_desc, "fields": fields}
         else: 
@@ -218,6 +229,7 @@ def generate_client(json_file: str, output_file: str):
             examples = result_schema.get("examples", [])
             
             if base_t != "Any":
+                # Wenn m_name = "deleteMedia", ist die Property hier "deleteMediaResult"
                 type_hint = register_type(m_name + "Result", base_t, f_desc_raw, "Res", def_val, examples)
             else:
                 type_hint = base_t
@@ -235,13 +247,11 @@ def generate_client(json_file: str, output_file: str):
             examples = props[p].get("examples", [])
             def_val = extract_default(pd_raw, props[p].get("default"))
             
-            # Typ registrieren (Kontext: Req)
             annotated_type = register_type(p, pt, pd_raw, "Req", def_val, examples)
             
             if p in req_f:
                 args_s.append(f"{p_safe}: {annotated_type}")
             else:
-                # Fallback, falls weder im Text noch im Schema ein Default stand, aber Parameter optional ist
                 dv = def_val if def_val is not None else ("False" if "bool" in pt else "0" if "int" in pt else "None")
                 args_s.append(f"{p_safe}: {annotated_type} = {dv}")
             
