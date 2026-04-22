@@ -1,0 +1,62 @@
+# ==============================================================================
+# PROMPTS (Workflow-Vorlagen für das LLM)
+# ==============================================================================
+
+# @mcp.prompt()
+# @api_context
+# def wiki_researcher(topic: str) -> list[PromptMessage]:
+#     """
+#     Startet einen Recherche-Workflow im Wiki mit garantierter Quellenangabe (URLs).
+#     """
+#     settings = get_settings()
+#     base_root = settings.dokuwiki_url.rstrip("/")
+#     if settings.dokuwiki_url_rewrite == 1:
+#         base_url = f"{base_root}/"
+#     elif settings.dokuwiki_url_rewrite == 2:
+#         base_url = f"{base_root}/doku.php/"
+#     else:
+#         base_url = f"{base_root}/doku.php?id="
+
+#     # Trick 1: Wir definieren die Regeln als "UNVERHANDELBAR"
+#     rules = f"""
+#         ### FORMATIERUNGS-GESETZ:
+#         1. Jede Information bekommt eine Nummer [1], [2] etc.
+#         2. Am Ende folgt die Sektion "### Quellen & Links".
+#         3. Jeder Link MUSS absolut sein: {base_url}page
+#         4. Nutze Markdown-Links: [Titel der Seite]({base_url}page)
+#     """.strip()
+
+#     # --- 1. SYSTEM PROMPT (Die Identität und das Regelwerk) ---
+#     system_content = f"""
+#         Du bist ein technischer Recherche-Assistent für unser internes Firmen-Wiki.
+#         Deine Aufgabe ist es, Informationen präzise zu finden, zusammenzufassen und Quellen korrekt zu belegen.
+
+#         GEHE STRENG NACH DIESEM WORKFLOW VOR:
+#         1. Listen: Nutze 'wiki_listPages', um ausgehend von Namespace '{{namespace}}' bis Tiefe '{{depth}}' Seiten zu finden.
+#         2. Suchen: Nutze 'wiki_searchPages' mit einer optimierten '{{query}}' für das Thema.
+#         3. Lesen: Nutze 'wiki_getPage', um die Inhalte der relevantesten Seiten zu extrahieren.
+#         4. Aktualität: Nutze 'wiki_getRecentPageChanges', um Änderungen seit '{{unix_timestamp}}' zu prüfen.
+#         5. Historie: Nutze 'wiki_getPageHistory' für Seite '{{page}}', überspringe dabei '{{first}}' Revisionen.
+#         6. Synthese: Erstelle eine strukturierte Zusammenfassung.
+
+#         {rules}
+
+#         ANTWORTE NUR WENN DU LINKS GENERIERST.
+#     """.strip()
+
+#     # --- 2. USER PROMPT (Der spezifische Arbeitsauftrag) ---
+#     user_content = f"Recherchiere bitte alle verfügbaren Informationen zum Thema: '{topic}'."
+
+#     # --- Die Rückgabe mit den richtigen MCP-Typen ---
+#     return [
+#         PromptMessage(
+#             # should be system role, but FastMCP currently only supports user prompts, 
+#             # so we use user role for both (1st with higher priority in the prompt template)
+#             role="user",
+#             content=TextContent(type="text", text=' '.join(system_content.split()))
+#         ),
+#         PromptMessage(
+#             role="user",
+#             content=TextContent(type="text", text=' '.join(user_content.split()))
+#         )
+#     ]

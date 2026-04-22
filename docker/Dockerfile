@@ -5,7 +5,9 @@ WORKDIR /app
 # System-Abhängigkeiten updaten und NodeJS installieren (für den MCP Inspector)
 RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && apt-get install -y nodejs \
+    && apt-get install -y \
+        nodejs \
+        patch \
     && rm -rf /var/lib/apt/lists/*
 
 # uv installieren (das superschnelle Build-Tool)

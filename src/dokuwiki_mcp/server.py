@@ -7,10 +7,16 @@ Design contract for agents and tooling:
 - Parameters and return values are passed through transparently from the client.
 - Errors are returned as `RPCError` objects.
 """
+import re
+import asyncio
+import subprocess
+import tempfile
+import enum
 import difflib
+import yake
 import base64
 import logging
-from typing import Any, List, Optional, Union, Annotated
+from typing import Any, List, Optional, Union, Annotated, Tuple
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -109,7 +115,7 @@ def api_context(func):
     return common_context(func, context="DokuWiki JSON-RPC API (Wrapper)")
 
 def api_ext_context(func):
-    return common_context(func, context="DokuWiki JSON-RPC API (extended)")
+    return common_context(func, context="DokuWiki Tools extending/postprocessing API calls")
 
 
 # ==============================================================================
@@ -945,7 +951,7 @@ DeletePageResultType = Annotated[bool, Field(title="deletePageResult", descripti
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@api_context
 async def wiki_deletePage(page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "deleted", ctx: Context = None) -> Union[DeletePageResultType, RPCError]:
     """
     PURPOSE: Deletes single page and add specific deletion summary note.
@@ -966,8 +972,370 @@ async def wiki_deletePage(page: PageRequestType, text: TextRequestType, summary:
 # AGENTIC TOOLS
 # ============================================================================
 
-# Registriere die Agentic Tools
-import src.dokuwiki_mcp.agentic_tools
+
+
+# ============================================================================
+# REUSABLE ANNOTATED TYPES FOR AGENTIC TOOLS
+# ============================================================================
+
+SectionIndexesRequestType = Annotated[
+    List[int], 
+    Field(
+        title="sectionIndexes", 
+        description="Eine Liste von 1-basierten sequenziellen Indizes der Sektionen, wie sie in wiki_getPageStructure angezeigt werden.", 
+        examples=[[1], [2, 5, 8]]
+    )
+]
+
+NamespaceRequestType = Annotated[
+    str,
+    Field(
+        title="namespace",
+        description="Der Wiki-Namespace (Ordner), der exploriert werden soll. Nutze einen leeren String '' für das Root-Verzeichnis.",
+        examples=["", "it:network", "projects:2025"]
+    )
+]
+
+LanguagesRequestType = Annotated[
+    List[str],
+    Field(
+        title="languages",
+        description="Liste von 2-stelligen Sprachcodes für die Stopwort-Filterung (z.B. ['de', 'en']). Wichtig für gemischtsprachige Seiten.",
+        default=["de", "en"],
+        examples=[["en"], ["de", "en"]]
+    )
+]
+
+class PosixReadCommand(str, enum.Enum):
+    GREP = "grep"
+    HEAD = "head"
+    TAIL = "tail"
+    WC = "wc"
+
+class PosixModifyCommand(str, enum.Enum):
+    SED = "sed"
+    TR = "tr"
+    AWK = "awk"
+
+PosixArgsRequestType = Annotated[
+    List[str],
+    Field(
+        description="Liste von Flags/Optionen für das Kommando (z.B. ['-E', 's/old/new/g']). KEINE Dateipfade enthalten.",
+        default=[]
+    )
+]
+
+# ============================================================================
+# AGENTIC TOOLS
+# ============================================================================
+
+SectionIndexesRequestType = Annotated[
+    List[int], 
+    Field(description="Liste von 1-basierten Indizes der Sektionen.")
+]
+
+NamespaceRequestType = Annotated[
+    str,
+    Field(description="Wiki-Namespace. Leer für Root.")
+]
+
+LanguagesRequestType = Annotated[
+    List[str],
+    Field(description="Sprachcodes für Stopwörter (z.B. ['de', 'en']).", default=["de", "en"])
+]
+
+class PosixReadCommand(str, enum.Enum):
+    GREP = "grep"
+    HEAD = "head"
+    TAIL = "tail"
+    WC = "wc"
+
+class PosixModifyCommand(str, enum.Enum):
+    SED = "sed"
+    TR = "tr"
+    AWK = "awk"
+
+# ============================================================================
+# INTERNE HELFER (SICHERHEIT & ANALYSE)
+# ============================================================================
+
+def _extract_yake_keywords(text: str, languages: List[str], max_kw: int, n_gram: int = 2) -> List[Tuple[str, float]]:
+    if not text or len(text.strip()) < 30: return []
+    try:
+        import yake
+        combined_stopwords = set()
+        for lang in languages:
+            try:
+                dummy = yake.KeywordExtractor(lan=lang)
+                if hasattr(dummy, 'stopword_set'): combined_stopwords.update(dummy.stopword_set)
+            except: pass
+        kw_extractor = yake.KeywordExtractor(lan=languages[0], n=n_gram, dedupLim=0.9, top=max_kw, stopwords=list(combined_stopwords))
+        return kw_extractor.extract_keywords(text)
+    except: return []
+
+async def _execute_posix_command(command: str, args: List[str], input_text: str) -> Tuple[str, str, int]:
+    #forbidden = ["/", "..", "\\"]
+    #for arg in args:
+    #    if any(p in arg for p in forbidden) and not arg.startswith("-"):
+    #        return "", f"Security Error: Argument '{arg}' contains paths.", 1
+    cmd_list = [command]
+    if command == "awk": cmd_list.append("--sandbox")
+    cmd_list.extend(args)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            p = subprocess.run(cmd_list, input=input_text.encode('utf-8'), capture_output=True, cwd=tmpdir, shell=False, timeout=5)
+            return p.stdout.decode('utf-8', errors='replace'), p.stderr.decode('utf-8', errors='replace'), p.returncode
+    except Exception as e: return "", str(e), 1
+
+
+# ============================================================================
+# AGENTIC TOOLS
+# ============================================================================
+
+
+@mcp.tool()
+@api_ext_context
+async def wiki_getPageStructure(
+    page: PageRequestType,
+    languages: LanguagesRequestType = ["de", "en"],
+    rev: RevRequestType = 0,
+    ctx: Context = None
+) -> Union[str, RPCError]:
+    """
+    PURPOSE: Extracts the Table of Contents (TOC) of a page with IDs and meta-data context.
+    PREREQUISITES: Page must exist and user must have read permissions. Page should contain section headers for meaningful output.
+    USE WHEN: A structured overview of page sections is needed for navigation, analysis, or targeted content extraction.
+    AVOID WHEN: Full page content or rendered output is required; use wiki_getPage or wiki_getPageHTML instead.
+    PRECAUTIONS: None.
+    COSTS: Can be more efficient than fetching full page content if only structural overview is needed.
+    EXPECTED OUTPUT: Structured list of sections with levels, title, file size in Bytes and keywords or error details, if not successful.
+    NEXT STEPS: Use section IDs for targeted reads or edits, using wiki_getPageSections.
+    """
+    client = get_client(ctx)
+    (t_res, t_err), (i_res, i_err) = await asyncio.gather(
+        client.getPage(page=page, rev=rev), 
+        client.getPageInfo(page=page, rev=rev)
+    )
+    if t_err: return _unwrap(t_res, t_err)
+    text = str(t_res)
+    global_kws = _extract_yake_keywords(text, languages, 10, 1)
+
+    matches = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
+    structure = []
+    for i, m in enumerate(matches, 1):
+        lvl = 7 - len(re.match(r'={2,6}', m.group(0)).group(0))
+        sec_text = text[m.end():matches[i].start() if i < len(matches) else len(text)].strip()
+        kws = _extract_yake_keywords(sec_text, languages, 4, 1)
+        structure.append(f"[{i}]{'  '*(lvl-1)}- {m.group(1).strip()} (Lvl:{lvl}) (char/words:{len(sec_text)}/{len(sec_text.split())}) (kw: {', '.join([k for k,s in kws])})")
+    
+    # Zugriff auf Pydantic Modell-Attribute (nicht .get())
+    p_title = i_res.title if i_res else "Unknown"
+    p_size = i_res.size if i_res else len(text)
+    
+    meta = f"--- META: {page} | Title: {p_title} | Size: {p_size} Bytes | Keywords: {', '.join([k for k,s in global_kws])} ---\n"
+    return meta + "\n".join(structure)
+
+@mcp.tool()
+@api_ext_context
+async def wiki_getPageSections(
+    page: PageRequestType, 
+    section_indexes: SectionIndexesRequestType, 
+    rev: RevRequestType = 0,
+    ctx: Context = None
+) -> Union[str, RPCError]:
+    """
+    PURPOSE: Extracts a list of sections from a page based on provided 1-based section indexes (as per wiki_getPageStructure).
+    PREREQUISITES: Page must exist and user must have read permissions. Section indexes must correspond to actual sections in the page structure.
+    USE WHEN: Targeted extraction of specific sections is needed without fetching the entire page content.
+    AVOID WHEN: Full page content or rendered output is required; use wiki_getPage or wiki_getPageHTML instead.
+    PRECAUTIONS: Section indexes are 1-based and must match the structure output; invalid indexes will be ignored.
+    COSTS: Can be more efficient than fetching full page content if only specific sections are needed.
+    EXPECTED OUTPUT: Concatenated text of specified sections or error details.
+    NEXT STEPS: Any (unconditional).
+    """
+    client = get_client(ctx)
+    res, err = await client.getPage(page=page, rev=rev)
+    if err: return _unwrap(res, err)
+    text = str(res)
+    headers = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
+    parts = []
+    for idx in section_indexes:
+        for i, m in enumerate(headers, 1):
+            if i == idx:
+                eqs = len(re.match(r'={2,6}', m.group(0)).group(0))
+                end = len(text)
+                for nm in headers[i:]:
+                    if len(re.match(r'={2,6}', nm.group(0)).group(0)) >= eqs:
+                        end = nm.start(); break
+                parts.append(f"--- SECTION [{idx}]: {m.group(1).strip()} ---\n{text[m.end():end].strip()}")
+                break
+    return "\n\n".join(parts)
+
+@mcp.tool()
+@api_ext_context
+async def wiki_exploreNamespace(
+    namespace: NamespaceRequestType = "", 
+    ctx: Context = None
+) -> Union[str, RPCError]:
+    """
+    PURPOSE: Virtual File System (VFS) Browser for Dokuwiki namespaces, pages and media.
+    PREREQUISITES: User must have read permissions for the target namespace.
+    USE WHEN: Quick (specific) inventory and navigation of namespace structure is needed without fetching full page content.
+    AVOID WHEN: Full content search or analysis is required; use wiki_searchPages or wiki_getPage instead.
+    PRECAUTIONS: None.
+    COSTS: Browser-like listing of pages and media in the namespace, minimal response payload.
+    EXPECTED OUTPUT: Structured list of sub-namespaces, pages and media (with file size in Bytes) or error details.
+    NEXT STEPS: Use listed page names for targeted reads or edits.
+    """
+    client = get_client(ctx)
+    (p_res, p_err), (m_res, m_err) = await asyncio.gather(
+        client.listPages(namespace=namespace, depth=1), 
+        client.listMedia(namespace=namespace, depth=1)
+    )
+    if p_err and m_err: return f"Error exploring namespace '{namespace}'."
+    
+    sub_ns, pages, media = set(), [], []
+    
+    # Verarbeitung der Pydantic Modelle für Seiten
+    for it in (p_res or []):
+        iid = it.id
+        rel = iid[len(namespace)+1:] if namespace else iid
+        if ":" in rel:
+            sub_ns.add(rel.split(":")[0])
+        else:
+            pages.append(f"{iid} ({it.title}) [{it.size} Bytes]")
+            
+    # Verarbeitung der Pydantic Modelle für Medien
+    for it in (m_res or []):
+        media.append(f"{it.id} [{it.size} Bytes]")
+        
+    out = [f"--- VFS Browser: '{namespace or '[ROOT]'}' ---", "\n[NAMESPACES]"]
+    out.extend([f"  - {n}" for n in sorted(sub_ns)] or ["  (None)"])
+    out.append("\n[PAGES]"); out.extend([f"  - {p}" for p in sorted(pages)] or ["  (None)"])
+    out.append("\n[MEDIA]"); out.extend([f"  - {m}" for m in sorted(media)] or ["  (None)"])
+    return "\n".join(out)
+
+@mcp.tool()
+@api_ext_context
+async def wiki_posixReadPage(
+    page: PageRequestType, 
+    command: PosixReadCommand, 
+    args: List[str] = [], 
+    rev: RevRequestType = 0, 
+    ctx: Context = None
+) -> str:
+    """
+    PURPOSE: Page is processed als STDIN steeam to a POSIX command (provided) with arguments.
+    This allows for quick content extraction or analysis using familiar command-line tools.
+    PREREQUISITES: Page must exist and user must have read permissions. Command and arguments must must follow the manual definitions and security guidelines.
+    USE WHEN: Quick content insights, filtering, or analysis is needed that can be efficiently expressed via POSIX tools.
+    AVOID WHEN: Complex transformations or content modifications are required; use wiki_posixModifyPage instead.
+    COSTS: If POSIX command can efficiently extract needed information, this can be more efficient than fetching full content and processing in Python. 
+    EXPECTED OUTPUT: Command output or error details.
+    NEXT STEPS: Use output for analysis, decision-making, or as input to other tools
+    """
+    client = get_client(ctx)
+    res, err = await client.getPage(page=page, rev=rev)
+    if err: return _unwrap(res, err)
+    stdout, stderr, code = await _execute_posix_command(command.value, args, str(res))
+    return f"[STDOUT]\n{stdout}\n[STDERR]\n{stderr}\nRC: {code}"
+
+@mcp.tool()
+@api_ext_context
+async def wiki_posixModifyPage(
+    page: PageRequestType, 
+    command: PosixModifyCommand, 
+    args: List[str], 
+    rev: RevRequestType = 0, 
+    ctx: Context = None
+) -> str:
+    """
+    PURPOSE: Page is processed als STDIN steeam to a POSIX command (provided) with arguments. 
+    This allows for complex transformations while preserving the ability to review changes before applying.
+    PREREQUISITES: Page must exist and user must have read permissions. Command and arguments must must follow the manual definitions and security guidelines.
+    USE WHEN: Complex content transformations are needed that are easier to express via POSIX tools.
+    AVOID WHEN: Simple edits that can be done directly via wiki_savePage or wiki_appendPage.
+    COSTS: If POSIX command can descirbe complex transformations efficiently, this can be more efficient than multiple API calls. 
+    EXPECTED OUTPUT: Unified diff of changes or error details. The diff can be applied using wiki_patchPage if approved.
+    NEXT STEPS: Review the diff and use wiki_patchPage to apply if changes are approved
+    """
+    client = get_client(ctx)
+    res, err = await client.getPage(page=page, rev=rev)
+    if err: return _unwrap(res, err)
+    orig = str(res)
+    stdout, stderr, code = await _execute_posix_command(command.value, args, orig)
+    if code != 0: return f"Error: {stderr}"
+    diff = "".join(difflib.unified_diff(orig.splitlines(True), stdout.splitlines(True), f"a/{page}", f"b/{page}"))
+    if not diff: return "--- NO CHANGES ---"
+    
+    # Nutzt eine Variable für den Markdown Fence, um den Parsing-Fehler im Prompt zu verhindern
+    fence = "```"
+    return f"--- MODIFICATION PREVIEW (DIFF) ---\n{fence}diff\n{diff}{fence}\n\n[SYSTEM HINT: If approved, use wiki_patchPage with this exact diff text.]"
+
+@mcp.tool()
+@api_ext_context
+async def wiki_patchPage(
+    page: PageRequestType, 
+    patch_text: str, 
+    ctx: Context = None
+) -> Union[bool, str]:
+    """
+    PURPOSE: Applies a unified diff (patch) to a page and saves the result.
+    PREREQUISITES: Page must exist and user must have write permissions. Patch text must be a valid unified diff.
+    USE WHEN: A proposed change (diff) needs to be applied after review.
+    AVOID WHEN: The change is not in unified diff format or the difference is too large/complex for a simple patch application.
+    PRECAUTIONS: Invalid patches can fail or corrupt page content. Always review the diff before applying.
+    COSTS: Handlinga patch when diff is small is efficient, but large or complex diffs may lead to failures. Consider using wiki_savePage for large changes.
+    EXPECTED OUTPUT: True on successful patch application and save, or error details.
+    NEXT STEPS: Any (unconditional).
+    """
+    client = get_client(ctx)
+    res, err = await client.getPage(page=page)
+    if err: return _unwrap(res, err)
+    orig = str(res)
+    try:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            #ensure patch text ends with newline for proper patch parsing
+            if not patch_text.endswith('\n'):
+                patch_text += '\n'
+
+            path = f"{tmpdir}/p.txt"
+            with open(path, "w", encoding="utf-8") as f: f.write(orig)
+            p = subprocess.run(["patch", "-p0", "p.txt"], input=patch_text.encode('utf-8'), capture_output=True, cwd=tmpdir, shell=False)
+            if p.returncode != 0: return f"Patch failed: {p.stderr.decode('utf-8', errors='replace')}"
+            with open(path, "r", encoding="utf-8") as f: new_txt = f.read()
+            save_res, save_err = await client.savePage(page=page, text=new_txt, sum="Agentic Patch applied")
+            return _unwrap(save_res, save_err)
+    except Exception as e: return f"System Error: {str(e)}"
+
+@mcp.tool()
+@api_ext_context
+async def wiki_extractPageKeywords(
+    page: PageRequestType, 
+    languages: LanguagesRequestType = ["de", "en"], 
+    max_keywords: int = 15, 
+    rev: RevRequestType = 0, 
+    ctx: Context = None
+) -> str:
+    """
+    PURPOSE: Extracts top keywords via YAKE (Statistical Ranking).
+    PREREQUISITES: Page must exist and user must have read permissions.
+    USE WHEN: Quick content insights, relevance ranking, or keyword-based summarization is needed.
+    AVOID WHEN: Full semantic analysis or entity extraction is required; this is a statistical method
+    PRECAUTIONS: YAKE is language-sensitive; providing accurate language codes improves results. Not suitable for very short texts.
+    COSTS: Minimal response payload.
+    EXPECTED OUTPUT: List of keywords with scores or error details.
+    NEXT STEPS: Use for content insights or as input for further processing.
+    """
+
+    client = get_client(ctx)
+    res, err = await client.getPage(page=page, rev=rev)
+    if err: return _unwrap(res, err)
+    kws = _extract_yake_keywords(str(res), languages, max_keywords)
+    if not kws: return "No keywords found."
+    return "\n".join([f"{i:02d}. {k} ({s:.4f})" for i, (k, s) in enumerate(kws, 1)])
+
+
 
 # ==============================================================================
 # MAIN ENTRYPOINT - SERVER LAUNCH WITH ENVIRONMENT-BASED CONFIGURATION
