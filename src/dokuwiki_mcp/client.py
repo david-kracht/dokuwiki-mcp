@@ -199,12 +199,18 @@ class DokuWikiClient:
     High-level Pydantic-based client for DokuWiki JSON-RPC API.
     All methods return a Tuple of (Result, Error).
     """
+    # Global HTTPX client to persist connection pool across requests and users
+    _http_client: Optional[httpx.AsyncClient] = None
+
     def __init__(self, username: Optional[str] = None, password: Optional[str] = None, token: Optional[str] = None):
         self.settings = get_settings()
         self.user = username or self.settings.dokuwiki_user
         self.pwd = password or self.settings.dokuwiki_password
         self.token = token or self.settings.dokuwiki_token
         
+        if DokuWikiClient._http_client is None:
+            DokuWikiClient._http_client = httpx.AsyncClient(timeout=30.0)
+
         # Token has priority over username/password
         if self.token:
             self.auth = None
@@ -218,29 +224,33 @@ class DokuWikiClient:
         api_endpoint = f"{base_url}/lib/exe/jsonrpc.php/{method}"
         
         try:
-            async with httpx.AsyncClient(auth=self.auth, headers=self.headers, timeout=30.0) as http_client:
-                clean_params = {k: v for k, v in params.items() if v is not None}
-                response = await http_client.post(api_endpoint, json=clean_params)
-                response.raise_for_status() 
-                data = response.json()
-                
-                rpc_err = None
-                if isinstance(data, dict) and data.get("error"):
-                    e = data["error"]
-                    if isinstance(e, dict) and e.get("code") != 0:
-                        rpc_err = RPCError(code=e.get("code", -1), message=e.get("message", "Unknown error"))
-                
-                if rpc_err:
-                    return None, rpc_err
+            clean_params = {k: v for k, v in params.items() if v is not None}
+            response = await self._http_client.post(
+                api_endpoint,
+                json=clean_params,
+                headers=self.headers,
+                auth=self.auth
+            )
+            response.raise_for_status() 
+            data = response.json()
+            
+            rpc_err = None
+            if isinstance(data, dict) and data.get("error"):
+                e = data["error"]
+                if isinstance(e, dict) and e.get("code") != 0:
+                    rpc_err = RPCError(code=e.get("code", -1), message=e.get("message", "Unknown error"))
+            
+            if rpc_err:
+                return None, rpc_err
 
-                result = data.get("result")
-                if response_model and result is not None:
-                    if isinstance(result, list):
-                        return [response_model(**item) if isinstance(item, dict) else item for item in result], None
-                    if isinstance(result, dict):
-                        return response_model(**result), None
-                
-                return result, None
+            result = data.get("result")
+            if response_model and result is not None:
+                if isinstance(result, list):
+                    return [response_model(**item) if isinstance(item, dict) else item for item in result], None
+                if isinstance(result, dict):
+                    return response_model(**result), None
+            
+            return result, None
         except Exception as e:
             return None, RPCError(code=-999, message=str(e))
 
