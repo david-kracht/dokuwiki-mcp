@@ -24,15 +24,15 @@ DepthRequestType = Annotated[int, Field(title="depth", description='How deep to 
 FirstRequestType = Annotated[int, Field(title="first", description='skip the first n changelog lines, 0 starts at the current revision', default=0, examples=[42])]
 GetAPIVersionResultType = Annotated[int, Field(title="getAPIVersionResult", description='API Result', examples=[42])]
 GetMediaResultType = Annotated[str, Field(title="getMediaResult", description='Base64 encoded media file contents', examples=['some-result'])]
-GetMediaUsageResultType = Annotated[List, Field(title="getMediaUsageResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
-GetPageBackLinksResultType = Annotated[List, Field(title="getPageBackLinksResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
+GetMediaUsageResultType = Annotated[List[str], Field(title="getMediaUsageResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
+GetPageBackLinksResultType = Annotated[List[str], Field(title="getPageBackLinksResult", description='A list of pages linking to the given page', examples=[['some-result', 'other-result']])]
 GetPageHTMLResultType = Annotated[str, Field(title="getPageHTMLResult", description='Rendered HTML for the page', examples=['some-result'])]
 GetPageResultType = Annotated[str, Field(title="getPageResult", description='the syntax of the page', examples=['some-result'])]
 GetWikiTimeResultType = Annotated[int, Field(title="getWikiTimeResult", description='A unix timestamp', examples=[42])]
 GetWikiTitleResultType = Annotated[str, Field(title="getWikiTitleResult", description='API Result', examples=['some-result'])]
 GetWikiVersionResultType = Annotated[str, Field(title="getWikiVersionResult", description='The version string e.g. "Release 2023-04-04a"', examples=['some-result'])]
-GroupsRequestType = Annotated[List, Field(title="groups", description='array of groups', default=[], examples=[['some-groups', 'other-groups']])]
-GroupsResponseType = Annotated[List, Field(title="groups", description='The groups the user is in')]
+GroupsRequestType = Annotated[List[str], Field(title="groups", description='array of groups', default=[], examples=[['some-groups', 'other-groups']])]
+GroupsResponseType = Annotated[List[str], Field(title="groups", description='The groups the user is in')]
 HashRequestType = Annotated[bool, Field(title="hash", description='whether to include the MD5 hash of the media content', default=False, examples=[True])]
 HashResponseType = Annotated[str, Field(title="hash", description="MD5 sum over the file's content (if available and requested)")]
 HrefResponseType = Annotated[str, Field(title="href", description='A hyperlink pointing to the linked target')]
@@ -42,7 +42,7 @@ IsadminResponseType = Annotated[bool, Field(title="isadmin", description='Whethe
 IsimageResponseType = Annotated[bool, Field(title="isimage", description='Wether this is an image file')]
 IsmanagerResponseType = Annotated[bool, Field(title="ismanager", description='Whether the user is a manager')]
 IsminorRequestType = Annotated[bool, Field(title="isminor", description='whether this is a minor edit', default=False, examples=[True])]
-LockPagesResultType = Annotated[List, Field(title="lockPagesResult", description='A list of pages that were successfully locked', examples=[['some-result', 'other-result']])]
+LockPagesResultType = Annotated[List[str], Field(title="lockPagesResult", description='A list of pages that were successfully locked', examples=[['some-result', 'other-result']])]
 LoginResponseType = Annotated[str, Field(title="login", description='The login name of the user')]
 LoginResultType = Annotated[int, Field(title="loginResult", description='If the login was successful', examples=[42])]
 LogoffResultType = Annotated[int, Field(title="logoffResult", description='0 on failure, 1 on success', examples=[42])]
@@ -53,7 +53,7 @@ NamespaceRequestType = Annotated[str, Field(title="namespace", description='The 
 OverwriteRequestType = Annotated[bool, Field(title="overwrite", description='Should an existing file be overwritten?', default=False, examples=[True])]
 PageRequestType = Annotated[str, Field(title="page", description='A page or media ID', examples=['playground:playground'])]
 PageResponseType = Annotated[str, Field(title="page", description='The wiki page this link points to, same as `href` for external links')]
-PagesRequestType = Annotated[List, Field(title="pages", description='A list of pages to lock', examples=[['some-pages', 'other-pages']])]
+PagesRequestType = Annotated[List[str], Field(title="pages", description='A list of pages to lock', examples=[['some-pages', 'other-pages']])]
 PassRequestType = Annotated[str, Field(title="pass", description='The password', examples=['some-pass'])]
 PatternRequestType = Annotated[str, Field(title="pattern", description='A regular expression to filter the returned files', default="", examples=['some-pattern'])]
 PermissionResponseType = Annotated[int, Field(title="permission", description="The current user's permissions for this file")]
@@ -72,7 +72,7 @@ TextRequestType = Annotated[str, Field(title="text", description='wiki text', ex
 TimestampRequestType = Annotated[int, Field(title="timestamp", description='Only show changes newer than this unix timestamp', default=0, examples=[1775759887])]
 TitleResponseType = Annotated[str, Field(title="title", description='The page title')]
 TypeResponseType = Annotated[str, Field(title="type", description='The type of this change')]
-UnlockPagesResultType = Annotated[List, Field(title="unlockPagesResult", description='A list of pages that were successfully unlocked', examples=[['some-result', 'other-result']])]
+UnlockPagesResultType = Annotated[List[str], Field(title="unlockPagesResult", description='A list of pages that were successfully unlocked', examples=[['some-result', 'other-result']])]
 UserRequestType = Annotated[str, Field(title="user", description='username', default="", examples=['some-user'])]
 
 # --- BASE MODELS ---
@@ -86,110 +86,110 @@ class RPCError(BaseModel):
 
 class GetMediaHistoryResult(BaseModel):
     """Returns a list of available revisions of a given media file"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    author: AuthorResponseType
-    ip: IpResponseType
-    summary: SummaryResponseType
-    type: TypeResponseType
-    sizechange: SizechangeResponseType
+    author: Optional[AuthorResponseType] = None
+    id: Optional[IdResponseType] = None
+    ip: Optional[IpResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    sizechange: Optional[SizechangeResponseType] = None
+    summary: Optional[SummaryResponseType] = None
+    type: Optional[TypeResponseType] = None
 
 class GetMediaInfoResult(BaseModel):
     """Return info about a media file"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    size: SizeResponseType
-    permission: PermissionResponseType
-    isimage: IsimageResponseType
-    hash: HashResponseType
-    author: AuthorResponseType
+    author: Optional[AuthorResponseType] = None
+    hash: Optional[HashResponseType] = None
+    id: Optional[IdResponseType] = None
+    isimage: Optional[IsimageResponseType] = None
+    permission: Optional[PermissionResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    size: Optional[SizeResponseType] = None
 
 class GetPageHistoryResult(BaseModel):
     """Returns a list of available revisions of a given wiki page"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    author: AuthorResponseType
-    ip: IpResponseType
-    summary: SummaryResponseType
-    type: TypeResponseType
-    sizechange: SizechangeResponseType
+    author: Optional[AuthorResponseType] = None
+    id: Optional[IdResponseType] = None
+    ip: Optional[IpResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    sizechange: Optional[SizechangeResponseType] = None
+    summary: Optional[SummaryResponseType] = None
+    type: Optional[TypeResponseType] = None
 
 class GetPageInfoResult(BaseModel):
     """Return some basic data about a page"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    size: SizeResponseType
-    title: TitleResponseType
-    permission: PermissionResponseType
-    hash: HashResponseType
-    author: AuthorResponseType
+    author: Optional[AuthorResponseType] = None
+    hash: Optional[HashResponseType] = None
+    id: Optional[IdResponseType] = None
+    permission: Optional[PermissionResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    size: Optional[SizeResponseType] = None
+    title: Optional[TitleResponseType] = None
 
 class GetPageLinksResult(BaseModel):
     """Get a page's links"""
-    type: TypeResponseType
-    page: PageResponseType
-    href: HrefResponseType
+    href: Optional[HrefResponseType] = None
+    page: Optional[PageResponseType] = None
+    type: Optional[TypeResponseType] = None
 
 class GetRecentMediaChangesResult(BaseModel):
     """Get recent media changes"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    author: AuthorResponseType
-    ip: IpResponseType
-    summary: SummaryResponseType
-    type: TypeResponseType
-    sizechange: SizechangeResponseType
+    author: Optional[AuthorResponseType] = None
+    id: Optional[IdResponseType] = None
+    ip: Optional[IpResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    sizechange: Optional[SizechangeResponseType] = None
+    summary: Optional[SummaryResponseType] = None
+    type: Optional[TypeResponseType] = None
 
 class GetRecentPageChangesResult(BaseModel):
     """Get recent page changes"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    author: AuthorResponseType
-    ip: IpResponseType
-    summary: SummaryResponseType
-    type: TypeResponseType
-    sizechange: SizechangeResponseType
+    author: Optional[AuthorResponseType] = None
+    id: Optional[IdResponseType] = None
+    ip: Optional[IpResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    sizechange: Optional[SizechangeResponseType] = None
+    summary: Optional[SummaryResponseType] = None
+    type: Optional[TypeResponseType] = None
 
 class ListMediaResult(BaseModel):
     """List all media files in the given namespace (and below)"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    size: SizeResponseType
-    permission: PermissionResponseType
-    isimage: IsimageResponseType
-    hash: HashResponseType
-    author: AuthorResponseType
+    author: Optional[AuthorResponseType] = None
+    hash: Optional[HashResponseType] = None
+    id: Optional[IdResponseType] = None
+    isimage: Optional[IsimageResponseType] = None
+    permission: Optional[PermissionResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    size: Optional[SizeResponseType] = None
 
 class ListPagesResult(BaseModel):
     """List all pages in the given namespace (and below)"""
-    id: IdResponseType
-    revision: RevisionResponseType
-    size: SizeResponseType
-    title: TitleResponseType
-    permission: PermissionResponseType
-    hash: HashResponseType
-    author: AuthorResponseType
+    author: Optional[AuthorResponseType] = None
+    hash: Optional[HashResponseType] = None
+    id: Optional[IdResponseType] = None
+    permission: Optional[PermissionResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    size: Optional[SizeResponseType] = None
+    title: Optional[TitleResponseType] = None
 
 class SearchPagesResult(BaseModel):
     """Do a fulltext search"""
-    score: ScoreResponseType
-    snippet: SnippetResponseType
-    hash: HashResponseType
-    author: AuthorResponseType
-    id: IdResponseType
-    revision: RevisionResponseType
-    size: SizeResponseType
-    title: TitleResponseType
-    permission: PermissionResponseType
+    author: Optional[AuthorResponseType] = None
+    hash: Optional[HashResponseType] = None
+    id: Optional[IdResponseType] = None
+    permission: Optional[PermissionResponseType] = None
+    revision: Optional[RevisionResponseType] = None
+    score: Optional[ScoreResponseType] = None
+    size: Optional[SizeResponseType] = None
+    snippet: Optional[SnippetResponseType] = None
+    title: Optional[TitleResponseType] = None
 
 class WhoAmIResult(BaseModel):
     """Info about the currently authenticated user"""
-    login: LoginResponseType
-    name: NameResponseType
-    mail: MailResponseType
-    groups: GroupsResponseType
-    isadmin: IsadminResponseType
-    ismanager: IsmanagerResponseType
+    groups: Optional[GroupsResponseType] = None
+    isadmin: Optional[IsadminResponseType] = None
+    ismanager: Optional[IsmanagerResponseType] = None
+    login: Optional[LoginResponseType] = None
+    mail: Optional[MailResponseType] = None
+    name: Optional[NameResponseType] = None
 
 
 # --- CLIENT IMPLEMENTATION ---
@@ -244,19 +244,19 @@ class DokuWikiClient:
         except Exception as e:
             return None, RPCError(code=-999, message=str(e))
 
-    async def aclCheck(self, page: PageRequestType, user: UserRequestType = "", groups: GroupsRequestType = []) -> Tuple[Optional[AclCheckResultType], Optional[RPCError]]:
+    async def aclCheck(self, page: PageRequestType, groups: GroupsRequestType = [], user: UserRequestType = "") -> Tuple[Optional[AclCheckResultType], Optional[RPCError]]:
         """Check ACL Permissions: This call allows to check the permissions for a given page/media and user/group combination. If no user/group is given, the current user is used. Read the link below to learn more about the permission levels. **See also:** * [Acl Background Info](https://www.dokuwiki.org/acl#background_info)
         ---
         Returns: A tuple containing (Result: permission level, Error: RPCError object)
         """
         params = {
             "page": page,
-            "user": user,
             "groups": groups,
+            "user": user,
         }
         return await self._rpc_call("core.aclCheck", params, None)
 
-    async def appendPage(self, page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "", isminor: IsminorRequestType = False) -> Tuple[Optional[AppendPageResultType], Optional[RPCError]]:
+    async def appendPage(self, page: PageRequestType, text: TextRequestType, isminor: IsminorRequestType = False, summary: SummaryRequestType = "") -> Tuple[Optional[AppendPageResultType], Optional[RPCError]]:
         """Appends text to the end of a wiki page: If the page does not exist, it will be created. If a page template for the non-existant page is configured, the given text will appended to that template. The call will create a new page revision. You need write permissions for the given page.
         ---
         Returns: A tuple containing (Result: Returns true on success, Error: RPCError object)
@@ -264,8 +264,8 @@ class DokuWikiClient:
         params = {
             "page": page,
             "text": text,
-            "summary": summary,
             "isminor": isminor,
+            "summary": summary,
         }
         return await self._rpc_call("core.appendPage", params, None)
 
@@ -310,16 +310,16 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getMediaHistory", params, GetMediaHistoryResult)
 
-    async def getMediaInfo(self, media: MediaRequestType, rev: RevRequestType = 0, author: AuthorRequestType = False, hash: HashRequestType = False) -> Tuple[Optional[GetMediaInfoResult], Optional[RPCError]]:
+    async def getMediaInfo(self, media: MediaRequestType, author: AuthorRequestType = False, hash: HashRequestType = False, rev: RevRequestType = 0) -> Tuple[Optional[GetMediaInfoResult], Optional[RPCError]]:
         """Return info about a media file: The call will return an error if the requested media file does not exist. Read access is required for the media file.
         ---
         Returns: A tuple containing (Result: Return info about a media file, Error: RPCError object)
         """
         params = {
             "media": media,
-            "rev": rev,
             "author": author,
             "hash": hash,
+            "rev": rev,
         }
         return await self._rpc_call("core.getMediaInfo", params, GetMediaInfoResult)
 
@@ -376,16 +376,16 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getPageHistory", params, GetPageHistoryResult)
 
-    async def getPageInfo(self, page: PageRequestType, rev: RevRequestType = 0, author: AuthorRequestType = False, hash: HashRequestType = False) -> Tuple[Optional[GetPageInfoResult], Optional[RPCError]]:
+    async def getPageInfo(self, page: PageRequestType, author: AuthorRequestType = False, hash: HashRequestType = False, rev: RevRequestType = 0) -> Tuple[Optional[GetPageInfoResult], Optional[RPCError]]:
         """Return some basic data about a page: The call will return an error if the requested page does not exist. Read access is required for the page.
         ---
         Returns: A tuple containing (Result: Return some basic data about a page, Error: RPCError object)
         """
         params = {
             "page": page,
-            "rev": rev,
             "author": author,
             "hash": hash,
+            "rev": rev,
         }
         return await self._rpc_call("core.getPageInfo", params, GetPageInfoResult)
 
@@ -446,28 +446,28 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.getWikiVersion", params, None)
 
-    async def listMedia(self, namespace: NamespaceRequestType = "", pattern: PatternRequestType = "", depth: DepthRequestType = 1, hash: HashRequestType = False) -> Tuple[Optional[List[ListMediaResult]], Optional[RPCError]]:
+    async def listMedia(self, depth: DepthRequestType = 1, hash: HashRequestType = False, namespace: NamespaceRequestType = "", pattern: PatternRequestType = "") -> Tuple[Optional[List[ListMediaResult]], Optional[RPCError]]:
         """List all media files in the given namespace (and below): Setting the `depth` to `0` and the `namespace` to `""` will return all media files in the wiki. When `pattern` is given, it needs to be a valid regular expression as understood by PHP's `preg_match()` including delimiters. The pattern is matched against the full media ID, including the namespace. **See also:** * https://www.php.net/manual/en/reference.pcre.pattern.syntax.php
         ---
         Returns: A tuple containing (Result: List all media files in the given namespace (and below), Error: RPCError object)
         """
         params = {
-            "namespace": namespace,
-            "pattern": pattern,
             "depth": depth,
             "hash": hash,
+            "namespace": namespace,
+            "pattern": pattern,
         }
         return await self._rpc_call("core.listMedia", params, ListMediaResult)
 
-    async def listPages(self, namespace: NamespaceRequestType = "", depth: DepthRequestType = 1, hash: HashRequestType = False) -> Tuple[Optional[List[ListPagesResult]], Optional[RPCError]]:
+    async def listPages(self, depth: DepthRequestType = 1, hash: HashRequestType = False, namespace: NamespaceRequestType = "") -> Tuple[Optional[List[ListPagesResult]], Optional[RPCError]]:
         """List all pages in the given namespace (and below): Setting the `depth` to `0` and the `namespace` to `""` will return all pages in the wiki. Note: author information is not available in this call.
         ---
         Returns: A tuple containing (Result: A list of matching pages, Error: RPCError object)
         """
         params = {
-            "namespace": namespace,
             "depth": depth,
             "hash": hash,
+            "namespace": namespace,
         }
         return await self._rpc_call("core.listPages", params, ListPagesResult)
 
@@ -481,14 +481,14 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.lockPages", params, None)
 
-    async def login(self, user: UserRequestType, pass_: PassRequestType) -> Tuple[Optional[LoginResultType], Optional[RPCError]]:
+    async def login(self, pass_: PassRequestType, user: UserRequestType) -> Tuple[Optional[LoginResultType], Optional[RPCError]]:
         """Login: This method is public and does not require authentication. This will use the given credentials and attempt to login the user. This will set the appropriate cookies, which can be used for subsequent requests. Use of this mechanism is discouraged. Using token authentication is preferred.
         ---
         Returns: A tuple containing (Result: If the login was successful, Error: RPCError object)
         """
         params = {
-            "user": user,
             "pass": pass_,
+            "user": user,
         }
         return await self._rpc_call("core.login", params, None)
 
@@ -501,19 +501,19 @@ class DokuWikiClient:
         }
         return await self._rpc_call("core.logoff", params, None)
 
-    async def saveMedia(self, media: MediaRequestType, base64: Base64RequestType, overwrite: OverwriteRequestType = False) -> Tuple[Optional[SaveMediaResultType], Optional[RPCError]]:
+    async def saveMedia(self, base64: Base64RequestType, media: MediaRequestType, overwrite: OverwriteRequestType = False) -> Tuple[Optional[SaveMediaResultType], Optional[RPCError]]:
         """Uploads a file to the wiki: The file data has to be passed as a base64 encoded string. **See also:** * https://en.wikipedia.org/wiki/Base64
         ---
         Returns: A tuple containing (Result: Should always be true, Error: RPCError object)
         """
         params = {
-            "media": media,
             "base64": base64,
+            "media": media,
             "overwrite": overwrite,
         }
         return await self._rpc_call("core.saveMedia", params, None)
 
-    async def savePage(self, page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "", isminor: IsminorRequestType = False) -> Tuple[Optional[SavePageResultType], Optional[RPCError]]:
+    async def savePage(self, page: PageRequestType, text: TextRequestType, isminor: IsminorRequestType = False, summary: SummaryRequestType = "") -> Tuple[Optional[SavePageResultType], Optional[RPCError]]:
         """Save a wiki page: Saves the given wiki text to the given page. If the page does not exist, it will be created. Just like in the wiki, saving an empty text will delete the page. You need write permissions for the given page and the page may not be locked by another user.
         ---
         Returns: A tuple containing (Result: Returns true on success, Error: RPCError object)
@@ -521,8 +521,8 @@ class DokuWikiClient:
         params = {
             "page": page,
             "text": text,
-            "summary": summary,
             "isminor": isminor,
+            "summary": summary,
         }
         return await self._rpc_call("core.savePage", params, None)
 

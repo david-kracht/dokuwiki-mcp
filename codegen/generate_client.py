@@ -119,10 +119,22 @@ def collapse_ws(text: str) -> str:
     if not text: return ""
     return re.sub(r'\s+', ' ', text).strip()
 
-def map_type(openapi_type: str, item_type: str = None) -> str:
-    mapping = {"string": "str", "integer": "int", "number": "float", "boolean": "bool", "array": "List", "object": "Dict[str, Any]"}
-    base = mapping.get(openapi_type, "Any")
-    return f"List[{item_type}]" if base == "List" and item_type else base
+def map_type(schema: dict) -> str:
+    if not isinstance(schema, dict):
+        return "Any"
+    t = schema.get("type", "any")
+    if t == "array":
+        items = schema.get("items", {})
+        item_t = map_type(items)
+        return f"List[{item_t}]"
+    mapping = {
+        "string": "str",
+        "integer": "int",
+        "number": "float",
+        "boolean": "bool",
+        "object": "Dict[str, Any]"
+    }
+    return mapping.get(t, "Any")
 
 def extract_default(description: str, schema_default: Any) -> Optional[str]:
     # Direktes Schema-Default
@@ -208,22 +220,29 @@ def generate_client(json_file: str, output_file: str):
             model_desc = collapse_ws(target.get("description") or post.get("summary") or f"Result for {m_name}")
             fields = []
             
-            for fn, fp in target.get("properties", {}).items():
-                ft = map_type(fp.get("type", "any"))
+            target_required = set(target.get("required", []))
+            for fn, fp in sorted(target.get("properties", {}).items()):
+                ft = map_type(fp)
                 f_desc_raw = collapse_ws(fp.get("description", "No description provided."))
                 examples = fp.get("examples", [])
                 def_val = extract_default(f_desc_raw, fp.get("default"))
                 
                 annotated_type = register_type(fn, ft, f_desc_raw, "Res", def_val, examples)
                 
+                # Wenn das Feld nicht im required-Array des Objekts ist und kein Standardwert definiert wurde, machen wir es im Modell Optional
+                if fn not in target_required and def_val is None:
+                    model_type = f"Optional[{annotated_type}] = None"
+                else:
+                    model_type = annotated_type
+                
                 fields.append({
                     "name": fn if not keyword.iskeyword(fn) else f"{fn}_", 
-                    "annotated_type": annotated_type
+                    "annotated_type": model_type
                 })
             models[resp_class] = {"name": resp_class, "description": model_desc, "fields": fields}
         else: 
             # Primitive Response
-            base_t = map_type(result_schema.get("type", "any"))
+            base_t = map_type(result_schema)
             f_desc_raw = collapse_ws(result_schema.get("description") or "API Result")
             def_val = extract_default(f_desc_raw, result_schema.get("default"))
             examples = result_schema.get("examples", [])
@@ -233,16 +252,17 @@ def generate_client(json_file: str, output_file: str):
                 type_hint = register_type(m_name + "Result", base_t, f_desc_raw, "Res", def_val, examples)
             else:
                 type_hint = base_t
-
+ 
         # --- PARAMS PARSING ---
         req_s = post.get("requestBody", {}).get("content", {}).get("application/json", {}).get("schema", {})
         props, req_f = req_s.get("properties", {}), set(req_s.get("required", []))
         args_s, payload = [], []
-        param_names = sorted(props.keys(), key=lambda k: k not in req_f)
+        # Alphabetisch sortieren und dann stabile Sortierung nach Pflicht vs. Optional
+        param_names = sorted(sorted(props.keys()), key=lambda k: k not in req_f)
         
         for p in param_names:
             p_safe = f"{p}_" if keyword.iskeyword(p) else p
-            pt = map_type(props[p].get("type", "any"))
+            pt = map_type(props[p])
             pd_raw = collapse_ws(props[p].get("description", ""))
             examples = props[p].get("examples", [])
             def_val = extract_default(pd_raw, props[p].get("default"))
@@ -256,10 +276,10 @@ def generate_client(json_file: str, output_file: str):
                 args_s.append(f"{p_safe}: {annotated_type} = {dv}")
             
             payload.append({"key": p, "val": p_safe})
-
+ 
         raw_res_desc = collapse_ws(result_schema.get("description") or post.get("summary") or "the API result")
         result_doc_desc = f"A tuple containing (Result: {raw_res_desc}, Error: RPCError object)"
-
+ 
         methods.append({
             "rpc_method": path.lstrip('/'), "func_name": m_name, 
             "summary": collapse_ws(post.get("summary", "No summary")), 
@@ -267,15 +287,15 @@ def generate_client(json_file: str, output_file: str):
             "result_type_hint": type_hint, "result_desc": result_doc_desc,
             "args_signature": ", ".join(args_s), "payload": payload, "response_class": resp_class
         })
-
+ 
     # Sortieren für konsistente Generierung
     shared_types_list = sorted(shared_types_registry.values(), key=lambda x: x["type_name"])
-
+ 
     env = Environment(trim_blocks=True, lstrip_blocks=True)
     with open(output_file, 'w', encoding='utf-8') as f: 
         f.write(env.from_string(CLIENT_TEMPLATE).render(
             methods=methods, 
-            models=models.values(),
+            models=sorted(models.values(), key=lambda x: x["name"]),
             shared_types=shared_types_list
         ))
     print(f"Client generiert: {output_file}")
