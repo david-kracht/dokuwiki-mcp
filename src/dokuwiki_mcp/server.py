@@ -16,7 +16,8 @@ import difflib
 import yake
 import base64
 import logging
-from typing import Any, List, Optional, Union, Annotated, Tuple
+import uuid
+from typing import Any, List, Optional, Union, Annotated, Tuple, Dict
 from pydantic import BaseModel, Field
 
 from mcp.server.fastmcp import Context, FastMCP
@@ -159,905 +160,9 @@ def get_client(ctx: Context = None) -> DokuWikiClient:
 
 
 def _unwrap(result: Any, err: Optional[RPCError]) -> Any:
-    return err if err else result
-
-# ==============================================================================
-# RESOURCES (API calls without parameters)
-# ==============================================================================
-
-@mcp.resource(
-    "dokuwiki://core/getAPIVersion",
-    annotations={
-        "title": "Get DokuWiki JSON-RPC API version",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getAPIVersion(ctx: Context = None) -> Union[GetAPIVersionResultType, RPCError]:
-    """
-    PURPOSE: Returns the DokuWiki JSON-RPC API version number.
-    PREREQUISITES: None.
-    USE WHEN: Deciding compatibility before calling version-dependent API methods.
-    AVOID WHEN: Wiki release diagnostics are needed; use wiki_getWikiVersion for product version details.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: API version string or error details.
-    NEXT STEPS: Use version for compatibility checks.
-    """
-    client = get_client(ctx)
-    result, err = await client.getAPIVersion()
-    return _unwrap(result, err)
-
-
-@mcp.resource(
-    "dokuwiki://core/getWikiTime",
-    annotations={
-        "title": "Get current wiki server time",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getWikiTime(ctx: Context = None) -> Union[GetWikiTimeResultType, RPCError]:
-    """
-    PURPOSE: Returns the current wiki server Unix timestamp.
-    PREREQUISITES: None.
-    USE WHEN: Building time-based queries (rev/timestamp windows) to avoid client clock drift.
-    AVOID WHEN: Inspecting content revisions; use wiki_getPageHistory or wiki_getMediaHistory for revision timelines.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Current Unix timestamp or error details.
-    NEXT STEPS: Use timestamp for time-based queries.
-    """
-    client = get_client(ctx)
-    result, err = await client.getWikiTime()
-    return _unwrap(result, err)
-
-
-@mcp.resource(
-    "dokuwiki://core/getWikiTitle",
-    annotations={
-        "title": "Get configured wiki title",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getWikiTitle(ctx: Context = None) -> Union[GetWikiTitleResultType, RPCError]:
-    """
-    PURPOSE: Returns the configured wiki title string.
-    PREREQUISITES: None.
-    USE WHEN: An agent needs the canonical site label for UI messages, reports, or context grounding.
-    AVOID WHEN: Authentication or permission decisions are needed; use wiki_whoAmI and wiki_aclCheck instead.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Wiki title string or error details.
-    NEXT STEPS: Use for UI or context display.
-    """
-    client = get_client(ctx)
-    result, err = await client.getWikiTitle()
-    return _unwrap(result, err)
-
-
-@mcp.resource(
-    "dokuwiki://core/getWikiVersion",
-    annotations={
-        "title": "Get DokuWiki application version",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getWikiVersion(ctx: Context = None) -> Union[GetWikiVersionResultType, RPCError]:
-    """
-    PURPOSE: Returns the DokuWiki application version string.
-    PREREQUISITES: None.
-    USE WHEN: Troubleshooting, feature gating, and environment diagnostics tied to DokuWiki release behavior.
-    AVOID WHEN: JSON-RPC protocol compatibility is needed; use wiki_getAPIVersion for API-level compatibility checks.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Application version string or error details.
-    NEXT STEPS: Use for diagnostics or feature gating.
-    """
-    client = get_client(ctx)
-    result, err = await client.getWikiVersion()
-    return _unwrap(result, err)
-
-
-@mcp.resource(
-    "dokuwiki://core/whoAmI",
-    annotations={
-        "title": "Get current authenticated identity",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_whoAmI(ctx: Context = None) -> Union[WhoAmIResult, RPCError]:
-    """
-    PURPOSE: Returns the authenticated identity (user and roles/groups) for the active session.
-    PREREQUISITES: None.
-    USE WHEN: Permission-sensitive operations require confirmed execution context.
-    AVOID WHEN: Credential authentication is needed; use wiki_login for explicit login.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: User identity and group info or error details.
-    NEXT STEPS: Use for permission checks or UI display.
-    """
-    client = get_client(ctx)
-    result, err = await client.whoAmI()
-    return _unwrap(result, err)
-
-
-@mcp.resource(
-    "dokuwiki://core/logoff",
-    annotations={
-        "title": "Log off current session",
-        "readOnlyHint": False,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_logoff(ctx: Context = None) -> Union[LogoffResultType, RPCError]:
-    """
-    PURPOSE: Logs off the current authenticated session and returns a success indicator.
-    PREREQUISITES: User must be authenticated.
-    USE WHEN: An agent explicitly needs to terminate a cookie/session-based login.
-    AVOID WHEN: Permission reset or token revocation is intended; this is not a substitute for ACL checks or token lifecycle control.
-    PRECAUTIONS: Session will be terminated; further calls require re-authentication.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Success indicator (true/false) or error details.
-    NEXT STEPS: Re-authenticate if further actions are needed.
-    """
-    client = get_client(ctx)
-    result, err = await client.logoff()
-    return _unwrap(result, err)
-
-# ==============================================================================
-# TOOLS (API calls with one or more parameters)
-# ==============================================================================
-
-@mcp.tool(
-    annotations={
-        "title": "Check ACL permissions for page/media",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_aclCheck(page: PageRequestType, user: UserRequestType = "", groups: GroupsRequestType = [], ctx: Context = None) -> Union[AclCheckResultType, RPCError]:
-    """
-    PURPOSE: Returns effective ACL permission level for a page/media target, optionally for a specified user/groups context.
-    PREREQUISITES: None.
-    USE WHEN: Write, delete, lock, or media operations require permission validation.
-    AVOID WHEN: Content discovery or search is needed; this endpoint only evaluates access rights.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Permission level or error details.
-    NEXT STEPS: Use result to control access or UI state.
-    """
-    client = get_client(ctx)
-    result, err = await client.aclCheck(page=page, user=user, groups=groups)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Append text to page (new revision)",
-        "readOnlyHint": False,
-        "idempotentHint": False,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_appendPage(page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "", isminor: IsminorRequestType = False, ctx: Context = None) -> Union[AppendPageResultType, RPCError]:
-    """
-    PURPOSE: Appends raw DokuWiki markup to the end of an existing page and creates a new revision.
-    PREREQUISITES: Page must exist and user must have write permissions.
-    USE WHEN: Additive updates (logs, notes, changelog entries) should preserve existing page content.
-    AVOID WHEN: Full-page replacement or structured rewrite is required; use wiki_savePage instead.
-    PRECAUTIONS: Appends to existing content.
-    COSTS: New revision created, minimal payload.
-    EXPECTED OUTPUT: Success indicator or error details.
-    NEXT STEPS: Use for incremental updates or logging.
-    """
-    client = get_client(ctx)
-    result, err = await client.appendPage(page=page, text=text, summary=summary, isminor=isminor)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Delete media file",
-        "readOnlyHint": False,
-        "idempotentHint": True,
-        "destructiveHint": True,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_deleteMedia(media: MediaRequestType, ctx: Context = None) -> Union[DeleteMediaResultType, RPCError]:
-    """
-    PURPOSE: Permanently deletes a media file by media ID/path.
-    PREREQUISITES: Media must exist and user must have delete permissions.
-    USE WHEN: Obsolete or invalid binary assets must be removed intentionally.
-    AVOID WHEN: Only metadata, usage analysis, or replacement upload is needed; use wiki_getMediaInfo, wiki_getMediaUsage, or wiki_saveMedia.
-    PRECAUTIONS: You MUST acknowledge deletion: Deletion is irreversible; ensure correct media ID.
-    COSTS: Media file is removed, minimal payload.
-    EXPECTED OUTPUT: Success indicator or error details.
-    NEXT STEPS: Confirm deletion or update references.
-    """
-    client = get_client(ctx)
-    result, err = await client.deleteMedia(media=media)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get media file (Base64)",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getMedia(media: MediaRequestType, rev: RevRequestType = 0, ctx: Context = None) -> Union[GetMediaResultType, RPCError]:
-    """
-    PURPOSE: Returns Base64-encoded binary content for a media file (latest or specified revision timestamp).
-    PREREQUISITES: Media must exist and user must have read permissions.
-    USE WHEN: The actual file payload is needed for download, transformation, or external processing.
-    AVOID WHEN: Metadata checks, link impact checks, or history browsing is needed; use wiki_getMediaInfo, wiki_getMediaUsage, or wiki_getMediaHistory.
-    PRECAUTIONS: Large files may impact response size.
-    COSTS: Returns binary content as Base64 string.
-    EXPECTED OUTPUT: Base64-encoded file or error details.
-    NEXT STEPS: Use for download or processing.
-    """
-    client = get_client(ctx)
-    result, err = await client.getMedia(media=media, rev=rev)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get media file revision history",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getMediaHistory(media: MediaRequestType, first: FirstRequestType = 0, ctx: Context = None) -> Union[List[GetMediaHistoryResult], RPCError]:
-    """
-    PURPOSE: Returns revision history entries for a media file with optional offset pagination.
-    PREREQUISITES: Media must exist and user must have read permissions.
-    USE WHEN: Auditing change chronology or selecting a historical media revision.
-    AVOID WHEN: Media bytes are needed; use wiki_getMedia.
-    PRECAUTIONS: Large history may impact response size.
-    COSTS: Returns list of revision entries.
-    EXPECTED OUTPUT: List of revision history or error details.
-    NEXT STEPS: Use for audit or rollback decisions.
-    """
-    client = get_client(ctx)
-    result, err = await client.getMediaHistory(media=media, first=first)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get media file metadata",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getMediaInfo(media: MediaRequestType, rev: RevRequestType = 0, author: AuthorRequestType = False, hash: HashRequestType = False, ctx: Context = None) -> Union[GetMediaInfoResult, RPCError]:
-    """
-    PURPOSE: Returns technical metadata for a media file (size, revision info, and optional author/hash fields).
-    PREREQUISITES: Media must exist and user must have read permissions.
-    USE WHEN: Validation, deduplication, or preflight checks are needed before media mutation.
-    AVOID WHEN: Full binary content is required; use wiki_getMedia.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Metadata object or error details.
-    NEXT STEPS: Use for validation or deduplication.
-    """
-    client = get_client(ctx)
-    result, err = await client.getMediaInfo(media=media, rev=rev, author=author, hash=hash)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get pages referencing media",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getMediaUsage(media: MediaRequestType, ctx: Context = None) -> Union[GetMediaUsageResultType, RPCError]:
-    """
-    PURPOSE: Returns pages that reference a specific media object.
-    PREREQUISITES: Media must exist and user must have read permissions.
-    USE WHEN: Deleting or replacing media requires downstream impact analysis.
-    AVOID WHEN: Listing all media in a namespace is needed; use wiki_listMedia.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of referencing pages or error details.
-    NEXT STEPS: Use for impact analysis before deletion.
-    """
-    client = get_client(ctx)
-    result, err = await client.getMediaUsage(media=media)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get raw page markup",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPage(page: PageRequestType, rev: RevRequestType = 0, ctx: Context = None) -> Union[GetPageResultType, RPCError]:
-    """
-    PURPOSE: Returns raw DokuWiki markup for a page (latest or specified historical revision).
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Editable full source text is needed for analysis, patching, or controlled rewrite workflows.
-    AVOID WHEN: Only partial information is sufficient. Rendered view output is needed: use wiki_getPageHTML.
-    PRECAUTIONS: None.
-    COSTS: Can be very high for large pages. Consider using dedicating more specific tools before fetching full page content.
-    EXPECTED OUTPUT: Page markup or error details.
-    NEXT STEPS: Use for editing or analysis.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPage(page=page, rev=rev)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get inbound page backlinks",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPageBackLinks(page: PageRequestType, ctx: Context = None) -> Union[GetPageBackLinksResultType, RPCError]:
-    """
-    PURPOSE: Returns pages that link to the target page (inbound references/backlinks).
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Renaming, moving, or deleting pages requires incoming dependency analysis.
-    AVOID WHEN: Outbound link extraction from the page itself is needed; use wiki_getPageLinks.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of inbound links or error details.
-    NEXT STEPS: Use for dependency analysis before changes.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPageBackLinks(page=page)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get rendered page HTML",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPageHTML(page: PageRequestType, rev: RevRequestType = 0, ctx: Context = None) -> Union[GetPageHTMLResultType, RPCError]:
-    """
-    PURPOSE: Returns rendered HTML for a page revision.
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Downstream systems require fully rendered structure, preview output, or HTML parsing.
-    AVOID WHEN: Only partial information is sufficient. Editing or diffing source wiki syntax is needed; use wiki_getPage.
-    PRECAUTIONS: None.
-    COSTS: Can be very high for large pages. Consider using dedicating more specific tools before fetching full page content.
-    EXPECTED OUTPUT: Rendered HTML or error details.
-    NEXT STEPS: Use for preview or downstream processing.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPageHTML(page=page, rev=rev)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get page revision history",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPageHistory(page: PageRequestType, first: FirstRequestType = 0, ctx: Context = None) -> Union[List[GetPageHistoryResult], RPCError]:
-    """
-    PURPOSE: Returns revision history entries for a page with optional offset pagination.
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Audit trails, rollback decisions, and revision navigation are needed.
-    AVOID WHEN: The actual page body for a revision is needed; use wiki_getPage with rev.
-    PRECAUTIONS: Large history may impact response size.
-    COSTS: Returns list of revision entries.
-    EXPECTED OUTPUT: List of revision history or error details.
-    NEXT STEPS: Use for audit or rollback decisions.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPageHistory(page=page, first=first)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get page metadata",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPageInfo(page: PageRequestType, rev: RevRequestType = 0, author: AuthorRequestType = False, hash: HashRequestType = False, ctx: Context = None) -> Union[GetPageInfoResult, RPCError]:
-    """
-    PURPOSE: Returns technical metadata for a page (revision, size, permissions, optional author/hash details).
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Lightweight inspection is needed before deciding to read or update full content.
-    AVOID WHEN: Full source text or rendered output is needed; use wiki_getPage or wiki_getPageHTML.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Metadata object or error details.
-    NEXT STEPS: Use for inspection or validation.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPageInfo(page=page, rev=rev, author=author, hash=hash)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get outbound page links",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getPageLinks(page: PageRequestType, ctx: Context = None) -> Union[List[GetPageLinksResult], RPCError]:
-    """
-    PURPOSE: Returns all outbound links contained in a page (internal, external, and interwiki).
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Link graph extraction, validation, or migration impact analysis is needed.
-    AVOID WHEN: Inbound reference discovery is needed; use wiki_getPageBackLinks.
-    PRECAUTIONS: None.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of outbound links or error details.
-    NEXT STEPS: Use for link graph or migration analysis.
-    """
-    client = get_client(ctx)
-    result, err = await client.getPageLinks(page=page)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get recent media changes",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getRecentMediaChanges(timestamp: TimestampRequestType = 0, ctx: Context = None) -> Union[List[GetRecentMediaChangesResult], RPCError]:
-    """
-    PURPOSE: Returns recent media changes, optionally filtered to events newer than a Unix timestamp.
-    PREREQUISITES: None.
-    USE WHEN: Polling, incremental sync, or change-feed workflows for media assets are required.
-    AVOID WHEN: Full historical audit of one media item is needed; use wiki_getMediaHistory.
-    PRECAUTIONS: None.
-    COSTS: Can be high if many changes; consider using timestamp filters to limit results.
-    EXPECTED OUTPUT: List of recent changes or error details.
-    NEXT STEPS: Use for sync or monitoring.
-    """
-    client = get_client(ctx)
-    result, err = await client.getRecentMediaChanges(timestamp=timestamp)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Get recent page changes",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_getRecentPageChanges(timestamp: TimestampRequestType = 0, ctx: Context = None) -> Union[List[GetRecentPageChangesResult], RPCError]:
-    """
-    PURPOSE: Returns recent page changes, optionally filtered to events newer than a Unix timestamp.
-    PREREQUISITES: None.
-    USE WHEN: Incremental page indexing, event polling, or delta-based synchronization is needed.
-    AVOID WHEN: Relevance-ranked content search is needed; use wiki_searchPages.
-    PRECAUTIONS: None.
-    COSTS: Can be high if many changes; consider using timestamp filters to limit results.
-    EXPECTED OUTPUT: List of recent changes or error details.
-    NEXT STEPS: Use for sync or monitoring.
-    """
-    client = get_client(ctx)
-    result, err = await client.getRecentPageChanges(timestamp=timestamp)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "List media files in namespace",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_listMedia(namespace: NamespaceRequestType = "", pattern: PatternRequestType = "", depth: DepthRequestType = 1, hash: HashRequestType = False, ctx: Context = None) -> Union[List[ListMediaResult], RPCError]:
-    """
-    PURPOSE: Lists media files in a namespace tree with optional regex filtering, depth limit, and optional hash output.
-    PREREQUISITES: None.
-    USE WHEN: Namespace inventory, crawl, or batch media management is required.
-    AVOID WHEN: Content-based discovery is needed; this is not a full-text search endpoint.
-    PRECAUTIONS: None.
-    COSTS: Can be high if many media files; consider using pattern and depth filters to limit results.
-    EXPECTED OUTPUT: List of media files or error details.
-    NEXT STEPS: Use for inventory or batch operations.
-    """
-    client = get_client(ctx)
-    result, err = await client.listMedia(namespace=namespace, pattern=pattern, depth=depth, hash=hash)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "List pages in namespace hierarchy",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_listPages(namespace: NamespaceRequestType = "", depth: DepthRequestType = 1, hash: HashRequestType = False, ctx: Context = None) -> Union[List[ListPagesResult], RPCError]:
-    """
-    PURPOSE: Lists pages in a namespace hierarchy with configurable traversal depth and optional hash values.
-    PREREQUISITES: None.
-    USE WHEN: Structural navigation, inventory generation, or scoped batch operations are required.
-    AVOID WHEN: Keyword relevance search across page content is needed; use wiki_searchPages.
-    PRECAUTIONS: None.
-    COSTS: Can be high if many pages; consider using depth and hash filters to limit results.
-    EXPECTED OUTPUT: List of pages or error details.
-    NEXT STEPS: Use for navigation or batch operations.
-    """
-    client = get_client(ctx)
-    result, err = await client.listPages(namespace=namespace, depth=depth, hash=hash)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Lock multiple pages",
-        "readOnlyHint": False,
-        "idempotentHint": False,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_lockPages(pages: PagesRequestType, ctx: Context = None) -> Union[LockPagesResultType, RPCError]:
-    """
-    PURPOSE: Attempts to lock multiple pages and returns the subset successfully locked.
-    PREREQUISITES: Pages must exist and user must have lock permissions.
-    USE WHEN: Coordinated multi-page edits need conflict reduction.
-    AVOID WHEN: Permission probing or authentication checks are intended; use wiki_aclCheck and wiki_whoAmI.
-    PRECAUTIONS: Locks may expire or be overridden.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of locked pages or error details.
-    NEXT STEPS: Proceed with coordinated edits.
-    """
-    client = get_client(ctx)
-    result, err = await client.lockPages(pages=pages)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Login with credentials",
-        "readOnlyHint": False,
-        "idempotentHint": False,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_login(user: UserRequestType, pass_: PassRequestType, ctx: Context = None) -> Union[LoginResultType, RPCError]:
-    """
-    PURPOSE: Performs explicit credential login and returns the login status indicator.
-    PREREQUISITES: Valid username and password required.
-    USE WHEN: An authenticated session must be established with username/password.
-    AVOID WHEN: Identity introspection of an already-authenticated session is needed; use wiki_whoAmI.
-    PRECAUTIONS: Credentials are sensitive; handle securely.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Login status or error details.
-    NEXT STEPS: Use session for further API calls.
-    """
-    client = get_client(ctx)
-    result, err = await client.login(user=user, pass_=pass_)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Upload or overwrite media file",
-        "readOnlyHint": False,
-        "idempotentHint": False,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_saveMedia(media: MediaRequestType, base64: Base64RequestType, overwrite: OverwriteRequestType = False, ctx: Context = None) -> Union[SaveMediaResultType, RPCError]:
-    """
-    PURPOSE: Uploads Base64-encoded media content and optionally overwrites an existing media object.
-    PREREQUISITES: User must have upload permissions.
-    USE WHEN: Creating or updating binary attachments and media assets.
-    AVOID WHEN: Textual page updates are needed; use wiki_savePage or wiki_appendPage.
-    PRECAUTIONS: Overwrite may replace existing files.
-    COSTS: Media file is created or replaced.
-    EXPECTED OUTPUT: Success indicator or error details.
-    NEXT STEPS: Use for media management.
-    """
-    client = get_client(ctx)
-    result, err = await client.saveMedia(media=media, base64=base64, overwrite=overwrite)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Create or replace page content",
-        "readOnlyHint": False,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_savePage(page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "", isminor: IsminorRequestType = False, ctx: Context = None) -> Union[SavePageResultType, RPCError]:
-    """
-    PURPOSE: Creates a page or fully replaces page content with provided raw wiki syntax.
-    PREREQUISITES: User must have write permissions.
-    USE WHEN: Target page content should be set to a specific complete state.
-    AVOID WHEN: Additive-only updates should preserve existing content; use wiki_appendPage.
-    PRECAUTIONS: Overwrites existing content.
-    COSTS: New revision created, minimal payload.
-    EXPECTED OUTPUT: Success indicator or error details.
-    NEXT STEPS: Use for full page updates.
-    """
-    client = get_client(ctx)
-    result, err = await client.savePage(page=page, text=text, summary=summary, isminor=isminor)
-    return _unwrap(result, err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Search pages by content/title",
-        "readOnlyHint": True,
-        "idempotentHint": True,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_searchPages(query: QueryRequestType, ctx: Context = None) -> Union[List[SearchPagesResult], RPCError]:
-    """
-    PURPOSE: Searches pages by content and title, returning relevance-ranked results.
-    PREREQUISITES: None.
-    USE WHEN: Keyword-based discovery across page content is needed.
-    AVOID WHEN: Exact page listing or structural navigation is required; use wiki_listPages or wiki_getPageInfo.
-    PRECAUTIONS: None.
-    COSTS: Can be high for broad queries; consider using specific keywords to limit results.
-    EXPECTED OUTPUT: List of search results or error details.
-    NEXT STEPS: Use for discovery or navigation.
-    """
-    client = get_client(ctx)
-    result, err = await client.searchPages(query=query)
-    return _unwrap(result or [], err)
-
-
-@mcp.tool(
-    annotations={
-        "title": "Unlock multiple pages",
-        "readOnlyHint": False,
-        "idempotentHint": False,
-        "destructiveHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_unlockPages(pages: PagesRequestType, ctx: Context = None) -> Union[UnlockPagesResultType, RPCError]:
-    """
-    PURPOSE: Attempts to unlock multiple pages and returns the subset successfully unlocked.
-    PREREQUISITES: Pages must exist and user must have unlock permissions.
-    USE WHEN: Locks must be released after coordinated edit workflows.
-    AVOID WHEN: Saving or conflict resolution logic is required; this endpoint only changes lock state.
-    PRECAUTIONS: Unlocks may fail if not locked by user.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of unlocked pages or error details.
-    NEXT STEPS: Proceed with further edits or release locks.
-    """
-    client = get_client(ctx)
-    result, err = await client.unlockPages(pages=pages)
-    return _unwrap(result or [], err)
-
-
-# ==============================================================================
-# TOOLS (API calls with one or more parameters) (extensions)
-# ==============================================================================
-
-DeletePageResultType = Annotated[bool, Field(title="deletePageResult", description='Returns true on success', examples=[True])]
-
-# Annotation	Type	Description
-#####################################
-# title	string	    A human-readable title for the tool, useful for displaying in user interfaces. This is particularly useful when your tool's function name isn't descriptive enough for end users.
-# readOnlyHint	    boolean	Indicates whether the tool only reads data without making any modifications. This is crucial for tools that query information versus those that change system state.
-# destructiveHint	boolean	For non-read-only tools, this signals whether the changes made are destructive or reversible. This helps client applications implement appropriate warnings and confirmations.
-# idempotentHint	boolean	Specifies whether repeated identical calls have the same effect as a single call. This is important for understanding whether a tool can be safely retried.
-# openWorldHint	    boolean	Indicates whether the tool interacts with external systems beyond the local environment. This helps in understanding the tool's scope and potential dependencies.
-
-@mcp.tool(
-    annotations={
-        "title": "Delete page via API",
-        "readOnlyHint": False,
-        "destructiveHint": True,
-        "idempotentHint": False,
-        "openWorldHint": True,
-    }
-)
-@api_context
-async def wiki_deletePage(page: PageRequestType, text: TextRequestType, summary: SummaryRequestType = "deleted", ctx: Context = None) -> Union[DeletePageResultType, RPCError]:
-    """
-    PURPOSE: Deletes single page and add specific deletion summary note.
-    PREREQUISITES: Page must exist and user must have delete permissions.
-    USE WHEN: Intentional page removal while preserving revision history.
-    AVOID WHEN: Page need to be accessible via API.
-    PRECAUTIONS: You MUST acknowledge deletion: Deleted page becomes inaccessible via API (manual action required to restore).
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: Acknowledgment of deletion success (true/false) or error details. 
-    NEXT STEPS: Any (unconditional).
-    """
-    client = get_client(ctx)
-    result, err = await client.savePage(page=page, text=text, summary=summary, isminor=False)
-    return _unwrap(result, err)
-
-
-# ============================================================================
-# AGENTIC TOOLS
-# ============================================================================
-
-
-
-# ============================================================================
-# REUSABLE ANNOTATED TYPES FOR AGENTIC TOOLS
-# ============================================================================
-
-SectionIndexesRequestType = Annotated[
-    List[int], 
-    Field(
-        title="sectionIndexes", 
-        description="Eine Liste von 1-basierten sequenziellen Indizes der Sektionen, wie sie in wiki_getPageStructure angezeigt werden.", 
-        examples=[[1], [2, 5, 8]]
-    )
-]
-
-NamespaceRequestType = Annotated[
-    str,
-    Field(
-        title="namespace",
-        description="Der Wiki-Namespace (Ordner), der exploriert werden soll. Nutze einen leeren String '' für das Root-Verzeichnis.",
-        examples=["", "it:network", "projects:2025"]
-    )
-]
-
-LanguagesRequestType = Annotated[
-    List[str],
-    Field(
-        title="languages",
-        description="Liste von 2-stelligen Sprachcodes für die Stopwort-Filterung (z.B. ['de', 'en']). Wichtig für gemischtsprachige Seiten.",
-        default=["de", "en"],
-        examples=[["en"], ["de", "en"]]
-    )
-]
-
-class PosixReadCommand(str, enum.Enum):
-    GREP = "grep"
-    HEAD = "head"
-    TAIL = "tail"
-    WC = "wc"
-
-class PosixModifyCommand(str, enum.Enum):
-    SED = "sed"
-    TR = "tr"
-    AWK = "awk"
-
-PosixArgsRequestType = Annotated[
-    List[str],
-    Field(
-        description="Liste von Flags/Optionen für das Kommando (z.B. ['-E', 's/old/new/g']). KEINE Dateipfade enthalten.",
-        default=[]
-    )
-]
-
-# ============================================================================
-# AGENTIC TOOLS
-# ============================================================================
-
-SectionIndexesRequestType = Annotated[
-    List[int], 
-    Field(description="Liste von 1-basierten Indizes der Sektionen.")
-]
-
-NamespaceRequestType = Annotated[
-    str,
-    Field(description="Wiki-Namespace. Leer für Root.")
-]
-
-LanguagesRequestType = Annotated[
-    List[str],
-    Field(description="Sprachcodes für Stopwörter (z.B. ['de', 'en']).", default=["de", "en"])
-]
-
-class PosixReadCommand(str, enum.Enum):
-    GREP = "grep"
-    HEAD = "head"
-    TAIL = "tail"
-    WC = "wc"
-
-class PosixModifyCommand(str, enum.Enum):
-    SED = "sed"
-    TR = "tr"
-    AWK = "awk"
-
-# ============================================================================
-# INTERNE HELFER (SICHERHEIT & ANALYSE)
-# ============================================================================
+    if err:
+        return f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+    return result
 
 def _extract_yake_keywords(text: str, languages: List[str], max_kw: int, n_gram: int = 2) -> List[Tuple[str, float]]:
     if not text or len(text.strip()) < 30: return []
@@ -1073,268 +178,814 @@ def _extract_yake_keywords(text: str, languages: List[str], max_kw: int, n_gram:
         return kw_extractor.extract_keywords(text)
     except: return []
 
-async def _execute_posix_command(command: str, args: List[str], input_text: str) -> Tuple[str, str, int]:
-    #forbidden = ["/", "..", "\\"]
-    #for arg in args:
-    #    if any(p in arg for p in forbidden) and not arg.startswith("-"):
-    #        return "", f"Security Error: Argument '{arg}' contains paths.", 1
-    cmd_list = [command]
-    if command == "awk": cmd_list.append("--sandbox")
-    cmd_list.extend(args)
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            p = subprocess.run(cmd_list, input=input_text.encode('utf-8'), capture_output=True, cwd=tmpdir, shell=False, timeout=5)
-            return p.stdout.decode('utf-8', errors='replace'), p.stderr.decode('utf-8', errors='replace'), p.returncode
-    except Exception as e: return "", str(e), 1
+_SESSION_NAMESPACES = {}
+_STATEFUL_DRAFTS = {}
+
+def get_session_id(ctx: Context) -> Optional[str]:
+    if ctx:
+        try:
+            request_context = ctx.request_context
+            request = getattr(request_context, "request", None)
+            if request is not None:
+                headers = getattr(request, "headers", {}) or {}
+                # Handle dictionary keys case-insensitively
+                for k, v in headers.items():
+                    if k.lower() == "mcp-session-id":
+                        return v
+        except Exception:
+            pass
+    return None
+
+def _parse_timestamp(t_val: Any) -> Optional[float]:
+    if not t_val:
+        return None
+    if isinstance(t_val, (int, float)):
+        return float(t_val)
+    if isinstance(t_val, str):
+        try:
+            return float(t_val)
+        except ValueError:
+            pass
+        try:
+            import datetime
+            dt = datetime.datetime.fromisoformat(t_val.replace("Z", "+00:00"))
+            return dt.timestamp()
+        except ValueError:
+            pass
+    return None
+
+def _dokuwiki_to_markdown(text: str) -> str:
+    if not text:
+        return ""
+    # Headers
+    text = re.sub(r'^======\s*(.*?)\s*======\s*$', r'# \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^=====\s*(.*?)\s*=====\s*$', r'## \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^====\s*(.*?)\s*====\s*$', r'### \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^===\s*(.*?)\s*===\s*$', r'#### \1', text, flags=re.MULTILINE)
+    text = re.sub(r'^==\s*(.*?)\s*==\s*$', r'##### \1', text, flags=re.MULTILINE)
+    # Formatting
+    text = re.sub(r'\/\/(.*?)\/\/', r'*\1*', text)
+    text = re.sub(r'\'\'(.*?)\'\'', r'`\1`', text)
+    # Media
+    text = re.sub(r'\{\{([^|}]+)\|([^}]+)\}\}', r'![\2](\1)', text)
+    text = re.sub(r'\{\{([^}]+)\}\}', r'![\1](\1)', text)
+    # Links
+    text = re.sub(r'\[\[([^|\]]+)\|([^\]]+)\]\]', r'[\2](\1)', text)
+    text = re.sub(r'\[\[([^\]]+)\]\]', r'[\1](\1)', text)
+    return text
+
+def _lint_dokuwiki_syntax(text: str) -> Optional[str]:
+    if not text:
+        return None
+    if text.count("[[") != text.count("]]"):
+        return "Syntax Error: Unbalanced link brackets '[[ ... ]]'."
+    if text.count("{{") != text.count("}}"):
+        return "Syntax Error: Unbalanced media/image brackets '{{ ... }}'."
+    
+    # Headings match check
+    for i, line in enumerate(text.splitlines(), 1):
+        line = line.strip()
+        if line.startswith("=") and line.endswith("="):
+            match_left = re.match(r'^={2,6}', line)
+            match_right = re.search(r'={2,6}$', line)
+            if match_left and match_right:
+                left_eqs = len(match_left.group(0))
+                right_eqs = len(match_right.group(0))
+                if left_eqs != right_eqs:
+                    return f"Syntax Error (Line {i}): Mismatched equals signs in heading. Left has {left_eqs}, right has {right_eqs}."
+    return None
+
+async def _verified_save(client: DokuWikiClient, page: str, text: str, summary: str = "", isminor: bool = False) -> str:
+    """Save a page and verify it was actually persisted. Returns a result string."""
+    res, err = await client.savePage(page=page, text=text, summary=summary, isminor=isminor)
+    if err:
+        return f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+    # Post-write verification: DokuWiki may return True but silently fail to write
+    verify_res, verify_err = await client.getPageInfo(page=page)
+    if verify_err:
+        return (
+            f"WRITE FAILED (Silent Failure): savePage returned {res} but the page '{page}' "
+            f"does not exist after write. This typically indicates a file permission issue "
+            f"on the DokuWiki server. Check that the web server user (PUID) has write access to "
+            f"the data/pages directory for this namespace.\n"
+            f"→ Agent Hint: Do NOT retry this write. Inform the user about the server-side permission problem."
+        )
+    return str(res)
+
+async def _resolve_page_id(client: DokuWikiClient, page_id: str, ctx: Context = None, allow_create: bool = False) -> str:
+    if not page_id:
+        return page_id
+        
+    session_id = get_session_id(ctx)
+    active_ns = _SESSION_NAMESPACES.get(session_id) if session_id else None
+    
+    resolved_id = page_id
+    # Only prepend the active namespace for bare (non-namespaced) page names.
+    # If the page_id already contains a ':', it is already namespace-qualified
+    # and should NOT be prefixed (e.g. 'stadtbibliothek:bestand:zeitschriften').
+    if active_ns and ":" not in page_id and not page_id.startswith(":"):
+        resolved_id = f"{active_ns}:{page_id}"
+        
+    if resolved_id.startswith(":"):
+        resolved_id = resolved_id[1:]
+        
+    res, err = await client.getPageInfo(page=resolved_id)
+    if not err:
+        return resolved_id
+
+    # If the page does not exist and we allow creation (write actions), do not fuzzy-match!
+    if allow_create:
+        return resolved_id
+
+    pages_res, pages_err = await client.listPages(depth=0, namespace="")
+    if pages_err or not pages_res:
+        return resolved_id
+    
+    page_ids = [p.id for p in pages_res if hasattr(p, "id") and p.id]
+    lower_page_id = resolved_id.lower()
+    for pid in page_ids:
+        if pid.lower() == lower_page_id:
+            return pid
+            
+    matches = difflib.get_close_matches(resolved_id, page_ids, n=1, cutoff=0.7)
+    if matches:
+        return matches[0]
+        
+    return resolved_id
+
+async def _resolve_namespace(client: DokuWikiClient, namespace: str, ctx: Context = None) -> str:
+    session_id = get_session_id(ctx)
+    active_ns = _SESSION_NAMESPACES.get(session_id) if session_id else None
+    
+    resolved_ns = namespace
+    if active_ns and not namespace.startswith(active_ns + ":") and not namespace.startswith(":"):
+        if namespace:
+            resolved_ns = f"{active_ns}:{namespace}"
+        else:
+            resolved_ns = active_ns
+            
+    if resolved_ns.startswith(":"):
+        resolved_ns = resolved_ns[1:]
+
+    pages_res, pages_err = await client.listPages(depth=0, namespace="")
+    if pages_err or not pages_res:
+        return resolved_ns
+        
+    namespaces = {""}
+    for p in pages_res:
+        if hasattr(p, "id") and p.id and ":" in p.id:
+            namespaces.add(p.id.rsplit(":", 1)[0])
+            
+    lower_ns = resolved_ns.lower()
+    for ns in namespaces:
+        if ns.lower() == lower_ns:
+            return ns
+            
+    matches = difflib.get_close_matches(resolved_ns, list(namespaces), n=1, cutoff=0.7)
+    if matches:
+        return matches[0]
+        
+    return resolved_ns
 
 
-# ============================================================================
-# AGENTIC TOOLS
-# ============================================================================
+# --- CONSOLIDATED WIKI RESOURCES ---
+
+@mcp.resource(
+    "dokuwiki://raw_api_spec",
+    annotations={
+        "title": "Raw API Specification & Method Signatures",
+        "description": "Lists all available raw DokuWiki JSON-RPC methods, their python signatures, and parameters. To execute these raw methods, use the tool wiki_raw_proxy.",
+    }
+)
+async def dokuwiki_raw_api_spec() -> str:
+    """Returns a list of all raw JSON-RPC API methods and their python signatures in the client."""
+    import inspect
+    import re
+    methods = inspect.getmembers(DokuWikiClient, predicate=inspect.iscoroutinefunction)
+    out = [
+        "--- Raw JSON-RPC API Specification ---",
+        "This specification documents DokuWiki's low-level JSON-RPC methods and their parameters.",
+        "To invoke any of these methods directly, call the tool `wiki_raw_proxy` passing the method name in the 'method' parameter, and argument key-values in the 'params' object matching the parameters below.",
+        "All parameters without defaults are REQUIRED. Parameters with defaults are optional.",
+        ""
+    ]
+    for name, func in methods:
+        if name.startswith("_"): continue
+        try:
+            src = inspect.getsource(func)
+            match = re.search(r'_rpc_call\(\s*["\']([^"\']+)["\']', src)
+            raw_method = match.group(1) if match else f"wiki.{name}"
+        except Exception:
+            raw_method = f"wiki.{name}"
+            
+        sig = inspect.signature(func)
+        doc = inspect.getdoc(func) or "No documentation."
+        out.append(
+            f"Method: {raw_method}\n"
+            f"  Client Signature: {name}{sig}\n"
+            f"  Description: {doc}\n"
+            f"  Input Format: Call `wiki_raw_proxy` with method='{raw_method}' and params corresponding to client parameters.\n"
+        )
+    return "\n\n".join(out)
 
 
-@mcp.tool()
+class SearchAndExploreAction(str, enum.Enum):
+    search = "search"
+    list_items = "list"
+    recent_changes = "recent_changes"
+
+@mcp.tool(
+    annotations={
+        "title": "Search and Explore DokuWiki",
+        "description": "Explores the wiki by searching pages, listing namespace contents (pages & media), or tracking recent changes.",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+        "destructiveHint": False,
+        "openWorldHint": True,
+    }
+)
 @api_ext_context
-async def wiki_getPageStructure(
-    page: PageRequestType,
-    languages: LanguagesRequestType = ["de", "en"],
-    rev: RevRequestType = 0,
+async def wiki_search_and_explore(
+    action: SearchAndExploreAction,
+    query: Optional[Union[str, List[str]]] = Field(default=None, description="Search query or list of queries (required for action='search')"),
+    namespace: Optional[str] = Field(default="", description="Namespace to explore or restrict search to"),
+    depth: int = Field(default=1, description="Depth of exploration/listing (0 for infinite, defaults to 1)"),
+    exclusions: Optional[List[str]] = Field(default=None, description="List of namespaces to exclude"),
+    pattern: Optional[str] = Field(default=None, description="Regex pattern (PHP style) to filter IDs"),
+    modified_after: Optional[str] = Field(default=None, description="Filter pages modified after timestamp or ISO date string"),
+    limit: int = Field(default=50, description="Max results to return (defaults to 50)"),
     ctx: Context = None
-) -> Union[str, RPCError]:
+) -> str:
     """
-    PURPOSE: Extracts the Table of Contents (TOC) of a page with IDs and meta-data context.
-    PREREQUISITES: Page must exist and user must have read permissions. Page should contain section headers for meaningful output.
-    USE WHEN: A structured overview of page sections is needed for navigation, analysis, or targeted content extraction.
-    AVOID WHEN: Full page content or rendered output is required; use wiki_getPage or wiki_getPageHTML instead.
-    PRECAUTIONS: None.
-    COSTS: Can be more efficient than fetching full page content if only structural overview is needed.
-    EXPECTED OUTPUT: Structured list of sections with levels, title, file size in Bytes and keywords or error details, if not successful.
-    NEXT STEPS: Use section IDs for targeted reads or edits, using wiki_getPageSections.
+    PURPOSE: Explore the wiki by searching pages, listing namespace contents, or tracking recent changes.
+    PREREQUISITES: Read permissions.
     """
     client = get_client(ctx)
-    (t_res, t_err), (i_res, i_err) = await asyncio.gather(
-        client.getPage(page=page, rev=rev), 
-        client.getPageInfo(page=page, rev=rev)
-    )
-    if t_err: return _unwrap(t_res, t_err)
-    text = str(t_res)
-    global_kws = _extract_yake_keywords(text, languages, 10, 1)
-
-    matches = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
-    structure = []
-    for i, m in enumerate(matches, 1):
-        lvl = 7 - len(re.match(r'={2,6}', m.group(0)).group(0))
-        sec_text = text[m.end():matches[i].start() if i < len(matches) else len(text)].strip()
-        kws = _extract_yake_keywords(sec_text, languages, 4, 1)
-        structure.append(f"[{i}]{'  '*(lvl-1)}- {m.group(1).strip()} (Lvl:{lvl}) (char/words:{len(sec_text)}/{len(sec_text.split())}) (kw: {', '.join([k for k,s in kws])})")
+    resolved_ns = await _resolve_namespace(client, namespace, ctx)
     
-    # Zugriff auf Pydantic Modell-Attribute (nicht .get())
-    p_title = i_res.title if i_res else "Unknown"
-    p_size = i_res.size if i_res else len(text)
-    
-    meta = f"--- META: {page} | Title: {p_title} | Size: {p_size} Bytes | Keywords: {', '.join([k for k,s in global_kws])} ---\n"
-    return meta + "\n".join(structure)
+    rx = None
+    if pattern:
+        try:
+            rx = re.compile(pattern, re.IGNORECASE)
+        except Exception as e:
+            return f"Error: Invalid regex pattern: {str(e)}"
+            
+    exclude_set = set(exclusions) if exclusions else set()
 
-@mcp.tool()
+    def is_excluded(item_id: str) -> bool:
+        for ex in exclude_set:
+            if item_id.startswith(ex + ":") or item_id == ex:
+                return True
+        if rx and not rx.search(item_id):
+            return True
+        return False
+
+    t_limit = _parse_timestamp(modified_after)
+
+    if action == SearchAndExploreAction.search:
+        queries = [query] if isinstance(query, str) else (query or [])
+        if not queries:
+            return "Error: A 'query' parameter is required for action='search'."
+            
+        search_tasks = [client.searchPages(query=q) for q in queries]
+        search_results = await asyncio.gather(*search_tasks)
+        
+        merged_results = {}
+        for res, err in search_results:
+            if err: continue
+            for item in res:
+                if is_excluded(item.id):
+                    continue
+                if resolved_ns and not item.id.startswith(resolved_ns + ":"):
+                    continue
+                # Temporal filtering
+                if t_limit is not None:
+                    rev_ts = _parse_timestamp(getattr(item, "revision", None))
+                    if rev_ts is not None and rev_ts < t_limit:
+                        continue
+                if item.id not in merged_results or item.score > merged_results[item.id].score:
+                    merged_results[item.id] = item
+                    
+        sorted_items = sorted(merged_results.values(), key=lambda x: x.score, reverse=True)
+        
+        filtered = []
+        for item in sorted_items[:limit]:
+            filtered.append(f"- {item.id} (Score: {item.score}) snippet: {item.snippet}")
+                
+        if not filtered:
+            return "No matching search results found."
+        return f"--- Search Results for {queries} (in namespace '{resolved_ns or '[ROOT]'}') ---\n" + "\n".join(filtered)
+
+    elif action == SearchAndExploreAction.list_items:
+        (p_res, p_err), (m_res, m_err) = await asyncio.gather(
+            client.listPages(namespace=resolved_ns, depth=depth),
+            client.listMedia(namespace=resolved_ns, depth=depth)
+        )
+        if p_err and m_err:
+            return f"Error: Could not list items in namespace '{resolved_ns}'."
+            
+        sub_ns, pages, media = set(), [], []
+        for it in (p_res or []):
+            if is_excluded(it.id): continue
+            if t_limit is not None:
+                rev_ts = _parse_timestamp(getattr(it, "revision", None))
+                if rev_ts is not None and rev_ts < t_limit:
+                    continue
+            rel = it.id[len(resolved_ns)+1:] if resolved_ns else it.id
+            if ":" in rel:
+                sub_ns.add(rel.split(":")[0])
+            else:
+                pages.append(f"{it.id} ({it.title}) [{it.size} Bytes]")
+                
+        for it in (m_res or []):
+            if is_excluded(it.id): continue
+            media.append(f"{it.id} [{it.size} Bytes]")
+            
+        out = [f"--- Namespace Explorer: '{resolved_ns or '[ROOT]'}' ---", "\n[NAMESPACES]"]
+        out.extend([f"  - {n}" for n in sorted(sub_ns)] or ["  (None)"])
+        out.append("\n[PAGES]")
+        out.extend([f"  - {p}" for p in sorted(pages)[:limit]] or ["  (None)"])
+        out.append("\n[MEDIA]")
+        out.extend([f"  - {m}" for m in sorted(media)[:limit]] or ["  (None)"])
+        return "\n".join(out)
+
+    elif action == SearchAndExploreAction.recent_changes:
+        (p_res, p_err), (m_res, m_err) = await asyncio.gather(
+            client.getRecentPageChanges(timestamp=0),
+            client.getRecentMediaChanges(timestamp=0)
+        )
+        changes = []
+        for it in (p_res or []):
+            if is_excluded(it.id): continue
+            if resolved_ns and not it.id.startswith(resolved_ns + ":"): continue
+            m_time = getattr(it, "lastModified", 0)
+            if t_limit is not None and m_time < t_limit:
+                continue
+            changes.append({
+                "type": "PAGE",
+                "id": it.id,
+                "author": getattr(it, "author", "unknown"),
+                "summary": getattr(it, "summary", ""),
+                "time": m_time
+            })
+        for it in (m_res or []):
+            if is_excluded(it.id): continue
+            if resolved_ns and not it.id.startswith(resolved_ns + ":"): continue
+            m_time = getattr(it, "lastModified", 0) or getattr(it, "time", 0)
+            if t_limit is not None and m_time < t_limit:
+                continue
+            changes.append({
+                "type": "MEDIA",
+                "id": it.id,
+                "author": getattr(it, "author", "unknown"),
+                "summary": getattr(it, "summary", ""),
+                "time": m_time
+            })
+            
+        changes.sort(key=lambda x: x["time"], reverse=True)
+        out = [f"--- Recent Changes (in namespace '{resolved_ns or '[ROOT]'}') ---"]
+        for c in changes[:limit]:
+            import datetime
+            dt = datetime.datetime.fromtimestamp(c["time"]).strftime('%Y-%m-%d %H:%M:%S') if c["time"] else "unknown"
+            out.append(f"[{dt}] {c['type']} - {c['id']} by {c['author']} ({c['summary']})")
+        if len(out) == 1:
+            return "No recent changes found."
+        return "\n".join(out)
+
+
+class ReadContentAction(str, enum.Enum):
+    read_page = "read_page"
+    get_structure = "get_structure"
+    get_links = "get_links"
+    read_media = "read_media"
+    extract_insights = "extract_insights"
+
+@mcp.tool(
+    annotations={
+        "title": "Read and Analyze DokuWiki Content",
+        "description": "Reads page source text, extracts structures, links, media properties, or retrieves NLP keywords.",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+        "destructiveHint": False,
+        "openWorldHint": True,
+    }
+)
 @api_ext_context
-async def wiki_getPageSections(
-    page: PageRequestType, 
-    section_indexes: SectionIndexesRequestType, 
-    rev: RevRequestType = 0,
+async def wiki_read_content(
+    action: ReadContentAction,
+    target_id: str = Field(description="Page ID or Media ID to read/inspect"),
+    section_id: Optional[Union[str, int]] = Field(default=None, description="Optional 1-based section index (for read_page or get_structure)"),
+    rev: int = Field(default=0, description="Revision timestamp (0 for latest)"),
+    languages: List[str] = Field(default=["de", "en"], description="Language codes for keyword extraction (e.g. ['de', 'en'])"),
+    format: str = Field(default="markdown", description="Format output as 'raw' or translate to 'markdown'"),
+    regex_filter: Optional[str] = Field(default=None, description="Optional regex pattern to filter lines returned in read_page"),
     ctx: Context = None
-) -> Union[str, RPCError]:
+) -> str:
     """
-    PURPOSE: Extracts a list of sections from a page based on provided 1-based section indexes (as per wiki_getPageStructure).
-    PREREQUISITES: Page must exist and user must have read permissions. Section indexes must correspond to actual sections in the page structure.
-    USE WHEN: Targeted extraction of specific sections is needed without fetching the entire page content.
-    AVOID WHEN: Full page content or rendered output is required; use wiki_getPage or wiki_getPageHTML instead.
-    PRECAUTIONS: Section indexes are 1-based and must match the structure output; invalid indexes will be ignored.
-    COSTS: Can be more efficient than fetching full page content if only specific sections are needed.
-    EXPECTED OUTPUT: Concatenated text of specified sections or error details.
-    NEXT STEPS: Any (unconditional).
+    PURPOSE: Read page source text, extract structures, links, media properties, or retrieve NLP keywords.
+    PREREQUISITES: Read permissions.
     """
     client = get_client(ctx)
-    res, err = await client.getPage(page=page, rev=rev)
-    if err: return _unwrap(res, err)
-    text = str(res)
-    headers = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
-    parts = []
-    for idx in section_indexes:
+    resolved_id = await _resolve_page_id(client, target_id, ctx, allow_create=False)
+
+    if action == ReadContentAction.read_page:
+        res, err = await client.getPage(page=resolved_id, rev=rev)
+        if err: return _unwrap(res, err)
+        text = str(res)
+        
+        if section_id is not None:
+            try:
+                sec_idx = int(section_id)
+            except ValueError:
+                return "Error: section_id must be a 1-based index (integer)."
+                
+            headers = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
+            found_text = None
+            for i, m in enumerate(headers, 1):
+                if i == sec_idx:
+                    eqs = len(re.match(r'={2,6}', m.group(0)).group(0))
+                    end = len(text)
+                    for nm in headers[i:]:
+                        if len(re.match(r'={2,6}', nm.group(0)).group(0)) >= eqs:
+                            end = nm.start()
+                            break
+                    found_text = text[m.end():end].strip()
+                    break
+            if found_text is None:
+                return f"Error: Section index {sec_idx} not found on page '{resolved_id}'."
+            text = found_text
+            
+        # Optional Layout Stripping (DokuWiki -> Markdown)
+        if format == "markdown":
+            text = _dokuwiki_to_markdown(text)
+            
+        # Optional Regex-based filtering
+        if regex_filter:
+            try:
+                rx = re.compile(regex_filter, re.IGNORECASE | re.MULTILINE)
+            except Exception as e:
+                return f"Error: Invalid regex_filter pattern: {str(e)}"
+            matches = []
+            for i, line in enumerate(text.splitlines(), 1):
+                if rx.search(line):
+                    matches.append(f"Line {i:03d}: {line}")
+            if not matches:
+                return "No lines match the regex filter."
+            return f"--- Page: {resolved_id} (Regex Filter: '{regex_filter}') ---\n" + "\n".join(matches)
+            
+        section_label = f" (Section {section_id})" if section_id is not None else ""
+        return f"--- Page: {resolved_id}{section_label} ---\n{text}"
+
+    elif action == ReadContentAction.get_structure:
+        (t_res, t_err), (i_res, i_err) = await asyncio.gather(
+            client.getPage(page=resolved_id, rev=rev), 
+            client.getPageInfo(page=resolved_id, rev=rev)
+        )
+        if t_err: return _unwrap(t_res, t_err)
+        text = str(t_res)
+        global_kws = _extract_yake_keywords(text, languages, 10, 1)
+
+        matches = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
+        structure = []
+        for i, m in enumerate(matches, 1):
+            lvl = 7 - len(re.match(r'={2,6}', m.group(0)).group(0))
+            sec_text = text[m.end():matches[i].start() if i < len(matches) else len(text)].strip()
+            kws = _extract_yake_keywords(sec_text, languages, 4, 1)
+            structure.append(f"[{i}]{'  '*(lvl-1)}- {m.group(1).strip()} (Lvl:{lvl}) (char/words:{len(sec_text)}/{len(sec_text.split())}) (kw: {', '.join([k for k,s in kws])})")
+        
+        p_title = getattr(i_res, "title", "Unknown")
+        p_size = getattr(i_res, "size", len(text))
+        
+        meta = f"--- META: {resolved_id} | Title: {p_title} | Size: {p_size} Bytes | Keywords: {', '.join([k for k,s in global_kws])} ---\n"
+        return meta + "\n".join(structure)
+
+    elif action == ReadContentAction.get_links:
+        (l_res, l_err), (bl_res, bl_err) = await asyncio.gather(
+            client.getPageLinks(page=resolved_id),
+            client.getPageBackLinks(page=resolved_id)
+        )
+        out = [f"--- Links for Page: '{resolved_id}' ---", "\n[OUTBOUND LINKS]"]
+        out.extend([f"  - {l.page} (type: {l.type})" for l in (l_res or [])] or ["  (None)"])
+        out.append("\n[INBOUND BACKLINKS]")
+        out.extend([f"  - {bl}" for bl in (bl_res or [])] or ["  (None)"])
+        return "\n".join(out)
+
+    elif action == ReadContentAction.read_media:
+        (i_res, i_err), (m_res, m_err) = await asyncio.gather(
+            client.getMediaInfo(media=target_id, rev=rev),
+            client.getMedia(media=target_id, rev=rev)
+        )
+        if i_err: return _unwrap(i_res, i_err)
+        
+        out = [f"--- Media Info: '{target_id}' ---"]
+        for k, v in getattr(i_res, "model_dump", lambda: {})().items():
+            out.append(f"  {k}: {v}")
+        if not m_err and m_res:
+            out.append(f"\n[Media base64 contents available (size: {len(m_res)} chars)]")
+            snippet = str(m_res)[:500]
+            out.append(f"Snippet: {snippet}...")
+        return "\n".join(out)
+
+    elif action == ReadContentAction.extract_insights:
+        res, err = await client.getPage(page=resolved_id, rev=rev)
+        if err: return _unwrap(res, err)
+        text = str(res)
+        kws = _extract_yake_keywords(text, languages, 15, 2)
+        if not kws: return "No keywords or insights found."
+        out = ["--- Semantic Keywords & Scores (Lower is more relevant) ---"]
+        out.extend([f"  - {k} (Score: {s:.4f})" for k, s in kws])
+        return "\n".join(out)
+
+
+class WriteModifyAction(str, enum.Enum):
+    save_page = "save_page"
+    modify_section = "modify_section"
+    patch_page = "patch_page"
+    prepare_write = "prepare_write"
+    commit = "commit"
+    rollback = "rollback"
+    save_media = "save_media"
+    delete_media = "delete_media"
+    lock = "lock"
+    unlock = "unlock"
+
+@mcp.tool(
+    annotations={
+        "title": "Write and Modify DokuWiki Content",
+        "description": "Writes page content, edits sections, applies diff patches, uploads/deletes media, or manages locks.",
+        "readOnlyHint": False,
+        "idempotentHint": False,
+        "destructiveHint": True,
+        "openWorldHint": True,
+    }
+)
+@api_ext_context
+async def wiki_write_and_modify(
+    action: WriteModifyAction,
+    target_id: Optional[str] = Field(default=None, description="Page ID, Media ID, or transaction ID to modify/write"),
+    content: Optional[str] = Field(default=None, description="Full page content, section content, or base64 data for media"),
+    summary: Optional[str] = Field(default="", description="Edit summary description"),
+    section_id: Optional[Union[str, int]] = Field(default=None, description="1-based section index (for action='modify_section')"),
+    patch_diff: Optional[str] = Field(default=None, description="Unified diff text (for action='patch_page')"),
+    transaction_id: Optional[str] = Field(default=None, description="Transaction ID (required for action='commit' or 'rollback')"),
+    overwrite: bool = Field(default=False, description="Whether to overwrite existing media files (action='save_media')"),
+    dry_run: bool = Field(default=False, description="Two-Phase Commit: Show dry-run modifications as a diff without saving"),
+    ctx: Context = None
+) -> str:
+    """
+    PURPOSE: Write and modify content: save full pages, update specific sections, apply diff patches, upload/delete media, and manage page locks.
+    PREREQUISITES: Write permissions.
+    """
+    client = get_client(ctx)
+
+    # 1. Stateful Two-Phase Commit: Commit/Rollback actions
+    if action == WriteModifyAction.commit:
+        tx_id = transaction_id or target_id
+        if not tx_id or tx_id not in _STATEFUL_DRAFTS:
+            return f"Error: Transaction ID '{tx_id}' not found in cache."
+        dest_id, draft_content = _STATEFUL_DRAFTS.pop(tx_id)
+        return await _verified_save(client, page=dest_id, text=draft_content, summary=summary or "Committed stateful transaction")
+
+    elif action == WriteModifyAction.rollback:
+        tx_id = transaction_id or target_id
+        if not tx_id or tx_id not in _STATEFUL_DRAFTS:
+            return f"Error: Transaction ID '{tx_id}' not found in cache."
+        _STATEFUL_DRAFTS.pop(tx_id)
+        return f"Transaction '{tx_id}' successfully discarded/rolled back."
+
+    # For other actions, resolve the target ID relative to the namespace context
+    if not target_id:
+        return f"Error: target_id parameter is required for action '{action}'."
+    resolved_id = await _resolve_page_id(client, target_id, ctx, allow_create=True)
+
+    # 2. Syntax Linting Hook
+    if action in (WriteModifyAction.save_page, WriteModifyAction.modify_section, WriteModifyAction.prepare_write):
+        if content is not None:
+            lint_err = _lint_dokuwiki_syntax(content)
+            if lint_err:
+                return f"Write Aborted: {lint_err}"
+
+    if action == WriteModifyAction.save_page:
+        if content is None:
+            return "Error: 'content' parameter is required for save_page."
+        if dry_run:
+            res, err = await client.getPage(page=resolved_id)
+            orig = str(res) if not err else ""
+            diff = "".join(difflib.unified_diff(orig.splitlines(True), content.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
+            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+            
+        return await _verified_save(client, page=resolved_id, text=content, summary=summary or "")
+
+    elif action == WriteModifyAction.prepare_write:
+        if content is None:
+            return "Error: 'content' parameter is required for prepare_write."
+        res, err = await client.getPage(page=resolved_id)
+        orig = str(res) if not err else ""
+        diff = "".join(difflib.unified_diff(orig.splitlines(True), content.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
+        tx_id = str(uuid.uuid4())
+        _STATEFUL_DRAFTS[tx_id] = (resolved_id, content)
+        return (
+            f"--- PREPARE TRANSACTION (ID: {tx_id}) ---\n"
+            f"```diff\n{diff or 'No changes'}\n```\n\n"
+            f"[SYSTEM HINT: If approved, commit this change by calling wiki_write_and_modify with action='commit' and transaction_id='{tx_id}']"
+        )
+
+    elif action == WriteModifyAction.modify_section:
+        if content is None or section_id is None:
+            return "Error: both 'content' and 'section_id' are required for modify_section."
+        try:
+            sec_idx = int(section_id)
+        except ValueError:
+            return "Error: section_id must be a 1-based index (integer)."
+            
+        res, err = await client.getPage(page=resolved_id)
+        if err: return _unwrap(res, err)
+        text = str(res)
+        headers = list(re.finditer(r'^={2,6}\s*(.*?)\s*={2,6}$', text, re.MULTILINE))
+        
+        found = False
+        start, end = 0, len(text)
         for i, m in enumerate(headers, 1):
-            if i == idx:
+            if i == sec_idx:
+                start = m.end()
                 eqs = len(re.match(r'={2,6}', m.group(0)).group(0))
-                end = len(text)
                 for nm in headers[i:]:
                     if len(re.match(r'={2,6}', nm.group(0)).group(0)) >= eqs:
-                        end = nm.start(); break
-                parts.append(f"--- SECTION [{idx}]: {m.group(1).strip()} ---\n{text[m.end():end].strip()}")
+                        end = nm.start()
+                        break
+                found = True
                 break
-    return "\n\n".join(parts)
-
-@mcp.tool()
-@api_ext_context
-async def wiki_exploreNamespace(
-    namespace: NamespaceRequestType = "", 
-    ctx: Context = None
-) -> Union[str, RPCError]:
-    """
-    PURPOSE: Virtual File System (VFS) Browser for Dokuwiki namespaces, pages and media.
-    PREREQUISITES: User must have read permissions for the target namespace.
-    USE WHEN: Quick (specific) inventory and navigation of namespace structure is needed without fetching full page content.
-    AVOID WHEN: Full content search or analysis is required; use wiki_searchPages or wiki_getPage instead.
-    PRECAUTIONS: None.
-    COSTS: Browser-like listing of pages and media in the namespace, minimal response payload.
-    EXPECTED OUTPUT: Structured list of sub-namespaces, pages and media (with file size in Bytes) or error details.
-    NEXT STEPS: Use listed page names for targeted reads or edits.
-    """
-    client = get_client(ctx)
-    (p_res, p_err), (m_res, m_err) = await asyncio.gather(
-        client.listPages(namespace=namespace, depth=1), 
-        client.listMedia(namespace=namespace, depth=1)
-    )
-    if p_err and m_err: return f"Error exploring namespace '{namespace}'."
-    
-    sub_ns, pages, media = set(), [], []
-    
-    # Verarbeitung der Pydantic Modelle für Seiten
-    for it in (p_res or []):
-        iid = it.id
-        rel = iid[len(namespace)+1:] if namespace else iid
-        if ":" in rel:
-            sub_ns.add(rel.split(":")[0])
-        else:
-            pages.append(f"{iid} ({it.title}) [{it.size} Bytes]")
+                
+        if not found:
+            return f"Error: Section index {sec_idx} not found on page '{resolved_id}'."
             
-    # Verarbeitung der Pydantic Modelle für Medien
-    for it in (m_res or []):
-        media.append(f"{it.id} [{it.size} Bytes]")
+        new_page_text = text[:start] + "\n" + content.strip() + "\n\n" + text[end:]
         
-    out = [f"--- VFS Browser: '{namespace or '[ROOT]'}' ---", "\n[NAMESPACES]"]
-    out.extend([f"  - {n}" for n in sorted(sub_ns)] or ["  (None)"])
-    out.append("\n[PAGES]"); out.extend([f"  - {p}" for p in sorted(pages)] or ["  (None)"])
-    out.append("\n[MEDIA]"); out.extend([f"  - {m}" for m in sorted(media)] or ["  (None)"])
-    return "\n".join(out)
+        if dry_run:
+            diff = "".join(difflib.unified_diff(text.splitlines(True), new_page_text.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
+            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+            
+        return await _verified_save(client, page=resolved_id, text=new_page_text, summary=summary or f"Section {sec_idx} modified")
 
-@mcp.tool()
+    elif action == WriteModifyAction.patch_page:
+        if patch_diff is None:
+            return "Error: 'patch_diff' parameter is required for patch_page."
+        res, err = await client.getPage(page=resolved_id)
+        if err: return _unwrap(res, err)
+        orig = str(res)
+        
+        try:
+            with tempfile.TemporaryDirectory() as tmpdir:
+                if not patch_diff.endswith('\n'):
+                    patch_diff += '\n'
+                path = f"{tmpdir}/p.txt"
+                with open(path, "w", encoding="utf-8") as f: f.write(orig)
+                p = subprocess.run(["patch", "-p0", "p.txt"], input=patch_diff.encode('utf-8'), capture_output=True, cwd=tmpdir, shell=False)
+                if p.returncode != 0:
+                    return f"Patch application failed: {p.stderr.decode('utf-8', errors='replace')}"
+                with open(path, "r", encoding="utf-8") as f: new_txt = f.read()
+                
+                # Lint the newly patched page
+                lint_err = _lint_dokuwiki_syntax(new_txt)
+                if lint_err:
+                    return f"Write Aborted (Patched page syntax check failed): {lint_err}"
+                
+                if dry_run:
+                    diff = "".join(difflib.unified_diff(orig.splitlines(True), new_txt.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
+                    return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+                    
+                return await _verified_save(client, page=resolved_id, text=new_txt, summary=summary or "Patch applied")
+        except Exception as e:
+            return f"System Error applying patch: {str(e)}"
+
+    elif action == WriteModifyAction.save_media:
+        if content is None:
+            return "Error: 'content' base64 data is required for save_media."
+        res, err = await client.saveMedia(media=target_id, base64=content, overwrite=overwrite)
+        return str(_unwrap(res, err))
+
+    elif action == WriteModifyAction.delete_media:
+        res, err = await client.deleteMedia(media=target_id)
+        return str(_unwrap(res, err))
+
+    elif action == WriteModifyAction.lock:
+        res, err = await client.lockPages(pages=[resolved_id])
+        return str(_unwrap(res, err))
+
+    elif action == WriteModifyAction.unlock:
+        res, err = await client.unlockPages(pages=[resolved_id])
+        return str(_unwrap(res, err))
+
+
+class AdminMetaAction(str, enum.Enum):
+    who_ami = "who_ami"
+    acl_check = "acl_check"
+    system_info = "system_info"
+    logoff = "logoff"
+    set_namespace = "set_namespace"
+
+@mcp.tool(
+    annotations={
+        "title": "DokuWiki Admin and Metadata Properties",
+        "description": "Exposes administrative and session info: get current user, check ACLs, view system metadata, set active namespace, or logoff.",
+        "readOnlyHint": True,
+        "idempotentHint": True,
+        "destructiveHint": False,
+        "openWorldHint": True,
+    }
+)
 @api_ext_context
-async def wiki_posixReadPage(
-    page: PageRequestType, 
-    command: PosixReadCommand, 
-    args: List[str] = [], 
-    rev: RevRequestType = 0, 
+async def wiki_admin_and_meta(
+    action: AdminMetaAction,
+    page_id: Optional[str] = Field(default=None, description="Target Page ID (required for acl_check)"),
+    user: Optional[str] = Field(default="", description="User to check ACL permissions for"),
+    groups: Optional[List[str]] = Field(default=None, description="Groups to check ACL permissions for"),
+    namespace: Optional[str] = Field(default=None, description="Namespace to make active for current session (required for set_namespace)"),
     ctx: Context = None
 ) -> str:
     """
-    PURPOSE: Page is processed als STDIN steeam to a POSIX command (provided) with arguments.
-    This allows for quick content extraction or analysis using familiar command-line tools.
-    PREREQUISITES: Page must exist and user must have read permissions. Command and arguments must must follow the manual definitions and security guidelines.
-    USE WHEN: Quick content insights, filtering, or analysis is needed that can be efficiently expressed via POSIX tools.
-    AVOID WHEN: Complex transformations or content modifications are required; use wiki_posixModifyPage instead.
-    COSTS: If POSIX command can efficiently extract needed information, this can be more efficient than fetching full content and processing in Python. 
-    EXPECTED OUTPUT: Command output or error details.
-    NEXT STEPS: Use output for analysis, decision-making, or as input to other tools
+    PURPOSE: Administration and Metadata - View active user profile, check specific ACL permissions, review wiki software version metadata, set active session namespace, or log off.
+    PREREQUISITES: None.
     """
     client = get_client(ctx)
-    res, err = await client.getPage(page=page, rev=rev)
-    if err: return _unwrap(res, err)
-    stdout, stderr, code = await _execute_posix_command(command.value, args, str(res))
-    return f"[STDOUT]\n{stdout}\n[STDERR]\n{stderr}\nRC: {code}"
+    if action == AdminMetaAction.who_ami:
+        res, err = await client.whoAmI()
+        if err: return _unwrap(res, err)
+        out = ["--- User Session Details ---"]
+        for k, v in getattr(res, "model_dump", lambda: {})().items():
+            out.append(f"  {k}: {v}")
+        return "\n".join(out)
 
-@mcp.tool()
+    elif action == AdminMetaAction.acl_check:
+        if not page_id:
+            return "Error: 'page_id' is required for acl_check."
+        resolved_page = await _resolve_page_id(client, page_id, ctx, allow_create=False)
+        res, err = await client.aclCheck(page=resolved_page, user=user, groups=groups or [])
+        return str(_unwrap(res, err))
+
+    elif action == AdminMetaAction.system_info:
+        (v_res, v_err), (w_res, w_err), (t_res, t_err) = await asyncio.gather(
+            client.getAPIVersion(),
+            client.getWikiVersion(),
+            client.getWikiTime()
+        )
+        import datetime
+        dt = datetime.datetime.fromtimestamp(t_res).strftime('%Y-%m-%d %H:%M:%S') if not t_err and t_res else "unknown"
+        return (
+            f"--- Wiki System Information ---\n"
+            f"  API Version: {v_res if not v_err else 'error'}\n"
+            f"  DokuWiki Release: {w_res if not w_err else 'error'}\n"
+            f"  Server Time: {dt} (Timestamp: {t_res if not t_err else 'error'})"
+        )
+
+    elif action == AdminMetaAction.logoff:
+        res, err = await client.logoff()
+        return str(_unwrap(res, err))
+
+    elif action == AdminMetaAction.set_namespace:
+        session_id = get_session_id(ctx)
+        if not session_id:
+            return "Error: No active MCP session ID found in request headers."
+        if namespace is None:
+            return "Error: 'namespace' parameter is required for set_namespace."
+        resolved_ns = await _resolve_namespace(client, namespace, ctx)
+        _SESSION_NAMESPACES[session_id] = resolved_ns
+        return f"Success: Session active namespace set to '{resolved_ns}'."
+
+
+@mcp.tool(
+    annotations={
+        "title": "Low-level Raw API Proxy Fallback",
+        "description": "Enables raw JSON-RPC invocations directly against the DokuWiki API. To discover available raw method names, parameter signatures, and types, read the resource dokuwiki://raw_api_spec first.",
+        "readOnlyHint": False,
+        "idempotentHint": False,
+        "destructiveHint": True,
+        "openWorldHint": True,
+    }
+)
 @api_ext_context
-async def wiki_posixModifyPage(
-    page: PageRequestType, 
-    command: PosixModifyCommand, 
-    args: List[str], 
-    rev: RevRequestType = 0, 
+async def wiki_raw_proxy(
+    method: str = Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). To find method names, read the resource 'dokuwiki://raw_api_spec'."),
+    params: Dict[str, Any] = Field(default_factory=dict, description="JSON object containing key-value parameters matching the client signature parameters (e.g. {'page': 'playground:seite'})."),
     ctx: Context = None
 ) -> str:
     """
-    PURPOSE: Page is processed als STDIN steeam to a POSIX command (provided) with arguments. 
-    This allows for complex transformations while preserving the ability to review changes before applying.
-    PREREQUISITES: Page must exist and user must have read permissions. Command and arguments must must follow the manual definitions and security guidelines.
-    USE WHEN: Complex content transformations are needed that are easier to express via POSIX tools.
-    AVOID WHEN: Simple edits that can be done directly via wiki_savePage or wiki_appendPage.
-    COSTS: If POSIX command can descirbe complex transformations efficiently, this can be more efficient than multiple API calls. 
-    EXPECTED OUTPUT: Unified diff of changes or error details. The diff can be applied using wiki_patchPage if approved.
-    NEXT STEPS: Review the diff and use wiki_patchPage to apply if changes are approved
+    PURPOSE: Low-level API proxy fallback. Allows invoking any raw JSON-RPC method directly.
+    PREREQUISITES: None.
+    INPUT FORMAT: 
+      - method: Raw DokuWiki JSON-RPC method name (e.g. 'core.getPageInfo').
+      - params: A JSON dictionary where keys and types match the parameters of the client signature documented in 'dokuwiki://raw_api_spec'.
+    OUTPUT FORMAT: 
+      - Success: Returns the stringified/serialized raw response JSON payload from the DokuWiki server.
+      - Failure: Returns a formatted error string 'RPCError (Code X): message'.
+    CROSS-REFERENCE: 
+      - Read 'dokuwiki://raw_api_spec' to see the complete list of available methods and signatures.
     """
     client = get_client(ctx)
-    res, err = await client.getPage(page=page, rev=rev)
-    if err: return _unwrap(res, err)
-    orig = str(res)
-    stdout, stderr, code = await _execute_posix_command(command.value, args, orig)
-    if code != 0: return f"Error: {stderr}"
-    diff = "".join(difflib.unified_diff(orig.splitlines(True), stdout.splitlines(True), f"a/{page}", f"b/{page}"))
-    if not diff: return "--- NO CHANGES ---"
-    
-    # Nutzt eine Variable für den Markdown Fence, um den Parsing-Fehler im Prompt zu verhindern
-    fence = "```"
-    return f"--- MODIFICATION PREVIEW (DIFF) ---\n{fence}diff\n{diff}{fence}\n\n[SYSTEM HINT: If approved, use wiki_patchPage with this exact diff text.]"
-
-@mcp.tool()
-@api_ext_context
-async def wiki_patchPage(
-    page: PageRequestType, 
-    patch_text: str, 
-    ctx: Context = None
-) -> Union[bool, str]:
-    """
-    PURPOSE: Applies a unified diff (patch) to a page and saves the result.
-    PREREQUISITES: Page must exist and user must have write permissions. Patch text must be a valid unified diff.
-    USE WHEN: A proposed change (diff) needs to be applied after review.
-    AVOID WHEN: The change is not in unified diff format or the difference is too large/complex for a simple patch application.
-    PRECAUTIONS: Invalid patches can fail or corrupt page content. Always review the diff before applying.
-    COSTS: Handlinga patch when diff is small is efficient, but large or complex diffs may lead to failures. Consider using wiki_savePage for large changes.
-    EXPECTED OUTPUT: True on successful patch application and save, or error details.
-    NEXT STEPS: Any (unconditional).
-    """
-    client = get_client(ctx)
-    res, err = await client.getPage(page=page)
-    if err: return _unwrap(res, err)
-    orig = str(res)
-    try:
-        with tempfile.TemporaryDirectory() as tmpdir:
-            #ensure patch text ends with newline for proper patch parsing
-            if not patch_text.endswith('\n'):
-                patch_text += '\n'
-
-            path = f"{tmpdir}/p.txt"
-            with open(path, "w", encoding="utf-8") as f: f.write(orig)
-            p = subprocess.run(["patch", "-p0", "p.txt"], input=patch_text.encode('utf-8'), capture_output=True, cwd=tmpdir, shell=False)
-            if p.returncode != 0: return f"Patch failed: {p.stderr.decode('utf-8', errors='replace')}"
-            with open(path, "r", encoding="utf-8") as f: new_txt = f.read()
-            save_res, save_err = await client.savePage(page=page, text=new_txt, sum="Agentic Patch applied")
-            return _unwrap(save_res, save_err)
-    except Exception as e: return f"System Error: {str(e)}"
-
-@mcp.tool()
-@api_ext_context
-async def wiki_extractPageKeywords(
-    page: PageRequestType, 
-    languages: LanguagesRequestType = ["de", "en"], 
-    max_keywords: int = 15, 
-    rev: RevRequestType = 0, 
-    ctx: Context = None
-) -> str:
-    """
-    PURPOSE: Extracts top keywords via YAKE (Statistical Ranking).
-    PREREQUISITES: Page must exist and user must have read permissions.
-    USE WHEN: Quick content insights, relevance ranking, or keyword-based summarization is needed.
-    AVOID WHEN: Full semantic analysis or entity extraction is required; this is a statistical method
-    PRECAUTIONS: YAKE is language-sensitive; providing accurate language codes improves results. Not suitable for very short texts.
-    COSTS: Minimal response payload.
-    EXPECTED OUTPUT: List of keywords with scores or error details.
-    NEXT STEPS: Use for content insights or as input for further processing.
-    """
-
-    client = get_client(ctx)
-    res, err = await client.getPage(page=page, rev=rev)
-    if err: return _unwrap(res, err)
-    kws = _extract_yake_keywords(str(res), languages, max_keywords)
-    if not kws: return "No keywords found."
-    return "\n".join([f"{i:02d}. {k} ({s:.4f})" for i, (k, s) in enumerate(kws, 1)])
-
+    res, err = await client._rpc_call(method=method, params=params)
+    if err:
+        return f"RPCError (Code {err.code}): {err.message}"
+    return str(res)
 
 
 # ==============================================================================

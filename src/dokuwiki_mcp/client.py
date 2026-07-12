@@ -75,12 +75,61 @@ TypeResponseType = Annotated[str, Field(title="type", description='The type of t
 UnlockPagesResultType = Annotated[List[str], Field(title="unlockPagesResult", description='A list of pages that were successfully unlocked', examples=[['some-result', 'other-result']])]
 UserRequestType = Annotated[str, Field(title="user", description='username', default="", examples=['some-user'])]
 
+# --- DOKUWIKI ERROR CODE MAP (sourced from inc/Remote/ApiCore.php, Api.php, JsonRpcServer.php, LegacyApiCore.php) ---
+
+DOKUWIKI_ERROR_MAP: Dict[int, Dict[str, str]] = {
+    # --- Success ---
+    0: {"label": "Success", "hint": "The operation completed successfully."},
+
+    # --- Page Errors (1xx) ---
+    111: {"label": "Page Read Denied", "hint": "You lack read permission for this page. Check ACL or authenticate with a user that has read access."},
+    114: {"label": "Admin Only", "hint": "This operation requires admin privileges. Only admins can check ACL for other users or manage user accounts."},
+    121: {"label": "Page Not Found", "hint": "The requested page or revision does not exist. Verify the page ID (use wiki_search_and_explore to find it) or create the page first with wiki_write_and_modify action='save_page'."},
+    131: {"label": "Invalid Page ID", "hint": "The page ID is empty or contains invalid characters. DokuWiki page IDs use lowercase letters, numbers, underscores, and colons for namespace separators (e.g. 'namespace:pagename')."},
+    132: {"label": "Empty Page Rejected", "hint": "DokuWiki refuses to create a page with empty content. Provide non-empty 'content' in the save_page call."},
+    133: {"label": "Page Locked", "hint": "Another user or process is currently editing this page. Wait a moment and retry, or check who holds the lock via wiki_admin_and_meta action='list_locks'."},
+    134: {"label": "Content Blocked", "hint": "The page content was blocked by a DokuWiki spam filter or content blocker plugin. Review the content for forbidden patterns."},
+
+    # --- Media Errors (2xx) ---
+    211: {"label": "Media Read Denied", "hint": "You lack read permission for this media file. Check ACL or authenticate with appropriate access."},
+    212: {"label": "Media Delete Denied", "hint": "You lack permission to delete this media file. Admin or higher write ACL required."},
+    221: {"label": "Media Not Found", "hint": "The requested media file or revision does not exist. Verify the media ID (e.g. 'wiki:logo.png')."},
+    231: {"label": "Invalid Media ID", "hint": "The media ID is empty or invalid. Media IDs use the format 'namespace:filename.ext'."},
+    232: {"label": "Media In Use", "hint": "This media file is still referenced by wiki pages. Remove all references first, then retry deletion."},
+    233: {"label": "Media Delete Failed", "hint": "The server failed to delete the media file. This may be a file system permission issue on the DokuWiki server."},
+    234: {"label": "Invalid Base64", "hint": "The base64-encoded media data is malformed. Ensure the 'content' parameter is valid base64."},
+    235: {"label": "Empty File", "hint": "An empty file was provided. Media uploads require non-empty content."},
+    236: {"label": "Media Save Failed", "hint": "Failed to save the media file. This may be a file system permission or disk space issue on the DokuWiki server."},
+
+    # --- User Management Errors (4xx, Legacy API) ---
+    401: {"label": "Invalid User", "hint": "The username is empty or invalid."},
+    402: {"label": "Invalid User Name", "hint": "The display name is empty or invalid."},
+    403: {"label": "Invalid Email", "hint": "The email address is empty or invalid."},
+
+    # --- JSON-RPC Infrastructure Errors (negative codes) ---
+    -32602: {"label": "Invalid Parameters", "hint": "The method parameters are invalid. Check the parameter names and types match the API specification."},
+    -32603: {"label": "Method Not Found", "hint": "The requested API method does not exist. Use wiki_raw_proxy to inspect available methods via the raw_api_spec resource."},
+    -32604: {"label": "Access Denied", "hint": "Authentication failed or the API method is not authorized. Verify your authentication token/credentials."},
+    -32605: {"label": "API Disabled", "hint": "The JSON-RPC API is disabled in DokuWiki configuration. An admin must enable 'remote' in DokuWiki settings."},
+    -32606: {"label": "Invalid Request", "hint": "The server only accepts POST requests with Content-Type 'application/json'."},
+    -32700: {"label": "Parse Error", "hint": "The request body is not valid JSON. Check for syntax errors in the JSON payload."},
+    -999: {"label": "Network/Client Error", "hint": "A network or client-side error occurred (connection refused, timeout, DNS failure). Verify the DokuWiki server is reachable."},
+}
+
 # --- BASE MODELS ---
 
 class RPCError(BaseModel):
     """Informationen über einen API- oder Netzwerkfehler."""
     code: int = Field(..., description="Der Fehlercode (0 = Erfolg)")
     message: str = Field(..., description="Die Fehlermeldung")
+
+    @property
+    def actionable_hint(self) -> str:
+        """Returns an actionable hint for the LLM based on the error code."""
+        entry = DOKUWIKI_ERROR_MAP.get(self.code)
+        if entry:
+            return f"[{entry['label']}] {entry['hint']}"
+        return f"[Unknown Error Code {self.code}] {self.message}"
 
 # --- STRUCTURED RESULT MODELS ---
 
@@ -231,8 +280,22 @@ class DokuWikiClient:
                 headers=self.headers,
                 auth=self.auth
             )
+            
+            # Check for JSON-RPC error in the body first (DokuWiki JSON-RPC plugin often returns 400/404 with JSON body)
+            data = None
+            try:
+                data = response.json()
+            except Exception:
+                pass
+                
+            if isinstance(data, dict) and data.get("error"):
+                e = data["error"]
+                if isinstance(e, dict) and e.get("code") != 0:
+                    return None, RPCError(code=e.get("code", -1), message=e.get("message", "Unknown error"))
+                    
             response.raise_for_status() 
-            data = response.json()
+            if data is None:
+                data = response.json()
             
             rpc_err = None
             if isinstance(data, dict) and data.get("error"):
