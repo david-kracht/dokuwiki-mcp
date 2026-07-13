@@ -521,13 +521,13 @@ class SearchAndExploreAction(str, enum.Enum):
 @common_context
 async def wiki_search_and_explore(
     action: SearchAndExploreAction,
-    query: Optional[Union[str, List[str]]] = Field(default=None, description="Search query or list of queries (required for action='search')"),
-    namespace: Optional[str] = Field(default="", description="Namespace to explore or restrict search to"),
-    depth: int = Field(default=1, description="Depth of exploration/listing (0 for infinite, defaults to 1)"),
-    exclusions: Optional[List[str]] = Field(default=None, description="List of namespaces to exclude"),
-    pattern: Optional[str] = Field(default=None, description="Regex pattern (PHP style) to filter IDs"),
-    modified_after: Optional[str] = Field(default=None, description="Filter pages modified after timestamp or ISO date string"),
-    limit: int = Field(default=50, description="Max results to return (defaults to 50)"),
+    query: Annotated[Optional[Union[str, List[str]]], Field(description="Search query or list of queries (required for action='search')")] = None,
+    namespace: Annotated[Optional[str], Field(description="Namespace to explore or restrict search to")] = "",
+    depth: Annotated[int, Field(description="Depth of exploration/listing (0 for infinite, defaults to 1)")] = 1,
+    exclusions: Annotated[Optional[List[str]], Field(description="List of namespaces to exclude")] = None,
+    pattern: Annotated[Optional[str], Field(description="Regex pattern (PHP style) to filter IDs")] = None,
+    modified_after: Annotated[Optional[str], Field(description="Filter pages modified after timestamp or ISO date string")] = None,
+    limit: Annotated[int, Field(description="Max results to return (defaults to 50)")] = 50,
     ctx: Context = None
 ) -> str:
     """
@@ -702,12 +702,12 @@ class ReadContentAction(str, enum.Enum):
 @common_context
 async def wiki_read_content(
     action: ReadContentAction,
-    target_id: str = Field(description="Page ID or Media ID to read/inspect"),
-    section_id: Optional[Union[str, int]] = Field(default=None, description="Optional 1-based section index (for read_page or get_structure)"),
-    rev: int = Field(default=0, description="Revision timestamp (0 for latest)"),
-    languages: List[str] = Field(default=["de", "en"], description="Language codes for keyword extraction (e.g. ['de', 'en'])"),
-    format: str = Field(default="markdown", description="Format output as 'raw' or translate to 'markdown'"),
-    regex_filter: Optional[str] = Field(default=None, description="Optional regex pattern to filter lines returned in read_page"),
+    target_id: Annotated[str, Field(description="Page ID or Media ID to read/inspect")],
+    section_id: Annotated[Optional[Union[str, int]], Field(description="Optional 1-based section index (for read_page or get_structure)")] = None,
+    rev: Annotated[int, Field(description="Revision timestamp (0 for latest)")] = 0,
+    languages: Annotated[List[str], Field(description="Language codes for keyword extraction (e.g. ['de', 'en'])")] = ["de", "en"],
+    format: Annotated[str, Field(description="Format output as 'raw' or translate to 'markdown'")] = "markdown",
+    regex_filter: Annotated[Optional[str], Field(description="Optional regex pattern to filter lines returned in read_page")] = None,
     ctx: Context = None
 ) -> str:
     """
@@ -883,14 +883,14 @@ class WriteModifyAction(str, enum.Enum):
 @common_context
 async def wiki_write_and_modify(
     action: WriteModifyAction,
-    target_id: Optional[str] = Field(default=None, description="Page ID, Media ID, or transaction ID to modify/write"),
-    content: Optional[str] = Field(default=None, description="Full page content, section content, or base64 data for media"),
-    summary: Optional[str] = Field(default="", description="Edit summary description"),
-    section_id: Optional[Union[str, int]] = Field(default=None, description="1-based section index (for action='modify_section')"),
-    patch_diff: Optional[str] = Field(default=None, description="Unified diff text (for action='patch_page')"),
-    transaction_id: Optional[str] = Field(default=None, description="Transaction ID (required for action='commit' or 'rollback')"),
-    overwrite: bool = Field(default=False, description="Whether to overwrite existing media files (action='save_media')"),
-    dry_run: bool = Field(default=False, description="Two-Phase Commit: Show dry-run modifications as a diff without saving"),
+    target_id: Annotated[Optional[str], Field(description="Page ID, Media ID, or transaction ID to modify/write")] = None,
+    content: Annotated[Optional[str], Field(description="Full page content, section content, or base64 data for media")] = None,
+    summary: Annotated[Optional[str], Field(description="Edit summary description")] = "",
+    section_id: Annotated[Optional[Union[str, int]], Field(description="1-based section index (for action='modify_section')")] = None,
+    patch_diff: Annotated[Optional[str], Field(description="Unified diff text (for action='patch_page')")] = None,
+    transaction_id: Annotated[Optional[str], Field(description="Transaction ID (required for action='commit' or 'rollback')")] = None,
+    overwrite: Annotated[bool, Field(description="Whether to overwrite existing media files (action='save_media')")] = False,
+    dry_run: Annotated[bool, Field(description="Two-Phase Commit: Show dry-run modifications as a diff without saving")] = False,
     ctx: Context = None
 ) -> str:
     """
@@ -955,7 +955,7 @@ async def wiki_write_and_modify(
             res, err = await client.getPage(page=resolved_id)
             orig = str(res) if not err else ""
             diff = "".join(difflib.unified_diff(orig.splitlines(True), content.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
-            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```\n\n[SYSTEM HINT: Dry-run preview generated. NO actual changes were saved to DokuWiki yet. To write and persist this page to the wiki, call wiki_write_and_modify with dry_run=false.]"
             
         return await _verified_save(client, page=resolved_id, text=content, summary=summary or "")
 
@@ -964,7 +964,7 @@ async def wiki_write_and_modify(
             res, err = await client.getPage(page=resolved_id)
             orig = str(res) if not err else ""
             diff = "".join(difflib.unified_diff(orig.splitlines(True), [""], f"a/{resolved_id}", f"b/{resolved_id} (DELETED)"))
-            return f"--- DRY RUN (DELETE PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+            return f"--- DRY RUN (DELETE PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```\n\n[SYSTEM HINT: Dry-run delete preview generated. NO actual changes were saved to DokuWiki yet. To delete this page permanently, call wiki_write_and_modify with dry_run=false.]"
         return await _verified_save(client, page=resolved_id, text="", summary=summary or "Page deleted")
 
     elif action == WriteModifyAction.prepare_write:
@@ -1014,7 +1014,7 @@ async def wiki_write_and_modify(
         
         if dry_run:
             diff = "".join(difflib.unified_diff(text.splitlines(True), new_page_text.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
-            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+            return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```\n\n[SYSTEM HINT: Dry-run section modify preview generated. NO actual changes were saved to DokuWiki yet. To modify this section permanently, call wiki_write_and_modify with dry_run=false.]"
             
         return await _verified_save(client, page=resolved_id, text=new_page_text, summary=summary or f"Section {sec_idx} modified")
 
@@ -1043,7 +1043,7 @@ async def wiki_write_and_modify(
                 
                 if dry_run:
                     diff = "".join(difflib.unified_diff(orig.splitlines(True), new_txt.splitlines(True), f"a/{resolved_id}", f"b/{resolved_id}"))
-                    return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+                    return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```\n\n[SYSTEM HINT: Dry-run patch preview generated. NO actual changes were saved to DokuWiki yet. To apply this patch permanently, call wiki_write_and_modify with dry_run=false.]"
                     
                 return await _verified_save(client, page=resolved_id, text=new_txt, summary=summary or "Patch applied")
         except Exception as e:
@@ -1088,10 +1088,10 @@ class AdminMetaAction(str, enum.Enum):
 @common_context
 async def wiki_admin_and_meta(
     action: AdminMetaAction,
-    page_id: Optional[str] = Field(default=None, description="Target Page ID (required for acl_check)"),
-    user: Optional[str] = Field(default="", description="User to check ACL permissions for"),
-    groups: Optional[List[str]] = Field(default=None, description="Groups to check ACL permissions for"),
-    namespace: Optional[str] = Field(default=None, description="Namespace to make active for current session (required for set_namespace)"),
+    page_id: Annotated[Optional[str], Field(description="Target Page ID (required for acl_check)")] = None,
+    user: Annotated[Optional[str], Field(description="User to check ACL permissions for")] = "",
+    groups: Annotated[Optional[List[str]], Field(description="Groups to check ACL permissions for")] = None,
+    namespace: Annotated[Optional[str], Field(description="Namespace to make active for current session (required for set_namespace)")] = None,
     ctx: Context = None
 ) -> str:
     """
@@ -1168,8 +1168,8 @@ async def wiki_admin_and_meta(
 )
 @common_context
 async def wiki_raw_proxy(
-    method: str = Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). Read 'dokuwiki://raw_api_spec' for method list. ULTIMA RATIO: Prefer macro-tools first!"),
-    params: Dict[str, Any] = Field(default_factory=dict, description="JSON object containing key-value parameters matching the client signature parameters (e.g. {'page': 'playground:seite'})."),
+    method: Annotated[str, Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). Read 'dokuwiki://raw_api_spec' for method list. ULTIMA RATIO: Prefer macro-tools first!")],
+    params: Annotated[Dict[str, Any], Field(description="JSON object containing key-value parameters matching the client signature parameters (e.g. {'page': 'playground:seite'}).")] = None,
     ctx: Context = None
 ) -> str:
     """
@@ -1185,6 +1185,8 @@ async def wiki_raw_proxy(
       - High-Level Macro-Tools: Always check wiki_search_and_explore, wiki_read_content, wiki_write_and_modify, wiki_admin_and_meta first.
       - Spec: Read 'dokuwiki://raw_api_spec' to see the complete list of available methods and signatures.
     """
+    if params is None:
+        params = {}
     _log_tool_invocation("wiki_raw_proxy", method, {"method": method, "params": params}, ctx)
     client = get_client(ctx)
     res, err = await client._rpc_call(method=method, params=params)
@@ -1195,6 +1197,126 @@ async def wiki_raw_proxy(
     if res == "" and method in ("core.getPage", "core.getPageHTML", "core.getPageVersion", "core.getPageInfo"):
         return '""\n[RAW API HINT: DokuWiki returned an empty string. DokuWiki\'s core.getPage API returns "" when a page or revision does not exist. Execute core.getPageInfo or use macro-tool wiki_search_and_explore to check existence.]'
     return str(res)
+
+
+# ==============================================================================
+# COMPOUND ACTION BATCHING TOOL (MULTIPLE MACRO-TOOL EXECUTION)
+# ==============================================================================
+
+class BatchToolName(str, enum.Enum):
+    search_and_explore = "wiki_search_and_explore"
+    read_content = "wiki_read_content"
+    write_and_modify = "wiki_write_and_modify"
+    admin_and_meta = "wiki_admin_and_meta"
+
+
+class BatchTaskItem(BaseModel):
+    task_id: str = Field(
+        description="Unique string identifier for this task (e.g. 'read_arch_doc', 'search_setup')"
+    )
+    tool: BatchToolName = Field(
+        description="Name of the macro-tool to invoke (wiki_search_and_explore, wiki_read_content, wiki_write_and_modify, wiki_admin_and_meta)"
+    )
+    params: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Dictionary of parameters matching the target tool's function signature"
+    )
+
+
+async def _execute_single_batch_task(task: BatchTaskItem, ctx: Context) -> Tuple[str, str, bool]:
+    """
+    Executes a single task in the batch and returns (task_id, result_text, is_success).
+    """
+    try:
+        params = task.params or {}
+        tool_enum = task.tool.value if hasattr(task.tool, "value") else str(task.tool)
+        
+        if tool_enum == "wiki_search_and_explore":
+            res = await wiki_search_and_explore(**params, ctx=ctx)
+        elif tool_enum == "wiki_read_content":
+            res = await wiki_read_content(**params, ctx=ctx)
+        elif tool_enum == "wiki_write_and_modify":
+            res = await wiki_write_and_modify(**params, ctx=ctx)
+        elif tool_enum == "wiki_admin_and_meta":
+            res = await wiki_admin_and_meta(**params, ctx=ctx)
+        else:
+            return task.task_id, f"Error: Unknown tool '{tool_enum}' in batch task.", False
+
+        is_error = isinstance(res, str) and (res.startswith("Error:") or res.startswith("Write Aborted:") or res.startswith("RPCError"))
+        return task.task_id, str(res), not is_error
+    except Exception as e:
+        return task.task_id, f"Execution Error: {str(e)}", False
+
+
+@mcp.tool(
+    annotations={
+        "title": "Batch Execute Multiple DokuWiki Tool Operations",
+        "description": "Executes a batch array of macro-tool calls (search, read, write, admin) in a single request. Read-heavy tasks run in parallel, reducing LLM roundtrips by up to 80%. NOTE FOR WRITE TASKS: To save changes permanently to DokuWiki, do NOT set dry_run=true unless you only want a diff preview.",
+        "readOnlyHint": False,
+        "idempotentHint": False,
+        "destructiveHint": True,
+        "openWorldHint": True,
+    }
+)
+@common_context
+async def wiki_batch_execute(
+    tasks: Annotated[List[BatchTaskItem], Field(description="List of task items to execute in batch")],
+    ctx: Context = None
+) -> str:
+    """
+    PURPOSE: Compound Action Batching - Execute multiple macro-tool calls concurrently in a single roundtrip.
+    PREREQUISITES: Permissions corresponding to the requested batch operations.
+    """
+    _log_tool_invocation("wiki_batch_execute", "batch", {"task_count": len(tasks)}, ctx)
+    if not tasks:
+        return "Error: No tasks provided in batch request."
+
+    read_tasks: List[Tuple[int, BatchTaskItem]] = []
+    write_tasks: List[Tuple[int, BatchTaskItem]] = []
+
+    for idx, task in enumerate(tasks):
+        tool_enum = task.tool.value if hasattr(task.tool, "value") else str(task.tool)
+        p = task.params or {}
+        is_write = tool_enum == "wiki_write_and_modify" and not p.get("dry_run", False) and p.get("action") not in ("lock", "unlock")
+        if is_write:
+            write_tasks.append((idx, task))
+        else:
+            read_tasks.append((idx, task))
+
+    results_by_index: Dict[int, Tuple[str, str, bool, str]] = {}
+
+    # 1. Execute read tasks in parallel
+    if read_tasks:
+        read_coroutines = [_execute_single_batch_task(task, ctx) for _, task in read_tasks]
+        read_results = await asyncio.gather(*read_coroutines)
+        for (idx, task), (t_id, res_str, is_success) in zip(read_tasks, read_results):
+            tool_name = task.tool.value if hasattr(task.tool, "value") else str(task.tool)
+            results_by_index[idx] = (t_id, res_str, is_success, tool_name)
+
+    # 2. Execute write tasks sequentially
+    for idx, task in write_tasks:
+        t_id, res_str, is_success = await _execute_single_batch_task(task, ctx)
+        tool_name = task.tool.value if hasattr(task.tool, "value") else str(task.tool)
+        results_by_index[idx] = (t_id, res_str, is_success, tool_name)
+
+    # 3. Build consolidated Markdown report
+    total_count = len(tasks)
+    success_count = sum(1 for _, _, ok, _ in results_by_index.values() if ok)
+    
+    out = [f"--- BATCH EXECUTION SUMMARY ({success_count}/{total_count} Tasks Succeeded) ---"]
+    has_dry_run = False
+
+    for idx in range(total_count):
+        t_id, res_str, ok, tool_name = results_by_index[idx]
+        if "DRY RUN" in res_str:
+            has_dry_run = True
+        status_label = "SUCCESS" if ok else "ERROR / FAILED"
+        out.append(f"\n### [Task: {t_id}] (Tool: {tool_name}, Status: {status_label})\n{res_str}\n\n---")
+
+    if has_dry_run:
+        out.append("\n[SYSTEM HINT FOR BATCH WRITES: One or more tasks executed in DRY-RUN mode (diff preview). The changes were NOT saved to DokuWiki. To persist and create these pages permanently in DokuWiki, re-issue the batch tool call without dry_run=true or set dry_run=false.]")
+
+    return "\n".join(out)
 
 
 # ==============================================================================
