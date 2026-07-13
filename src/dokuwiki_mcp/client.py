@@ -122,14 +122,17 @@ class RPCError(BaseModel):
     """Informationen über einen API- oder Netzwerkfehler."""
     code: int = Field(..., description="Der Fehlercode (0 = Erfolg)")
     message: str = Field(..., description="Die Fehlermeldung")
+    method: Optional[str] = Field(default=None, description="Die aufgerufene JSON-RPC Methode")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Die übergebenen API-Parameter")
 
     @property
     def actionable_hint(self) -> str:
         """Returns an actionable hint for the LLM based on the error code."""
         entry = DOKUWIKI_ERROR_MAP.get(self.code)
+        method_info = f" | Executed API: '{self.method}' with params: {self.params}" if self.method else ""
         if entry:
-            return f"[{entry['label']}] {entry['hint']}"
-        return f"[Unknown Error Code {self.code}] {self.message}"
+            return f"[{entry['label']}] {entry['hint']}{method_info}"
+        return f"[Unknown Error Code {self.code}] {self.message}{method_info}"
 
 # --- STRUCTURED RESULT MODELS ---
 
@@ -291,7 +294,12 @@ class DokuWikiClient:
             if isinstance(data, dict) and data.get("error"):
                 e = data["error"]
                 if isinstance(e, dict) and e.get("code") != 0:
-                    return None, RPCError(code=e.get("code", -1), message=e.get("message", "Unknown error"))
+                    return None, RPCError(
+                        code=e.get("code", -1),
+                        message=e.get("message", "Unknown error"),
+                        method=method,
+                        params=clean_params,
+                    )
                     
             response.raise_for_status() 
             if data is None:
@@ -301,7 +309,12 @@ class DokuWikiClient:
             if isinstance(data, dict) and data.get("error"):
                 e = data["error"]
                 if isinstance(e, dict) and e.get("code") != 0:
-                    rpc_err = RPCError(code=e.get("code", -1), message=e.get("message", "Unknown error"))
+                    rpc_err = RPCError(
+                        code=e.get("code", -1),
+                        message=e.get("message", "Unknown error"),
+                        method=method,
+                        params=clean_params,
+                    )
             
             if rpc_err:
                 return None, rpc_err
@@ -315,7 +328,7 @@ class DokuWikiClient:
             
             return result, None
         except Exception as e:
-            return None, RPCError(code=-999, message=str(e))
+            return None, RPCError(code=-999, message=str(e), method=method, params=params)
 
     async def aclCheck(self, page: PageRequestType, groups: GroupsRequestType = [], user: UserRequestType = "") -> Tuple[Optional[AclCheckResultType], Optional[RPCError]]:
         """Check ACL Permissions: This call allows to check the permissions for a given page/media and user/group combination. If no user/group is given, the current user is used. Read the link below to learn more about the permission levels. **See also:** * [Acl Background Info](https://www.dokuwiki.org/acl#background_info)

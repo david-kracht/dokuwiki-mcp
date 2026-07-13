@@ -83,17 +83,127 @@ from .client import (
 )
 
 
-# --- LOGGING SETUP ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+import os
+from collections import defaultdict
+
+# --- LOGGING SETUP & METRICS ---
+# Silence internal framework logging at INFO level to keep container logs focused and readable
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
+logging.getLogger("mcp.server.lowlevel.server").setLevel(logging.WARNING)
+logging.getLogger("mcp").setLevel(logging.WARNING)
+
+LOG_LEVEL_NAME = os.environ.get("LOG_LEVEL", "INFO").upper()
+LOG_LEVEL = getattr(logging, LOG_LEVEL_NAME, logging.INFO)
+logging.basicConfig(level=LOG_LEVEL, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("DokuWikiMCP")
 
 mcp = FastMCP("DokuWiki")
+
+_SESSION_TOOL_METRICS: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+def _format_pretty_metrics(sess_id: str, current_tool: str, current_action: str, freqs: Dict[str, int]) -> str:
+    """Formats session tool utilization into a clean, pretty-printed block with [LATEST] markers."""
+    header = f"=== SESSION METRICS SUMMARY [{sess_id}] ==="
+    lines = [header]
+    
+    current_act_key = f"{current_tool}:{current_action}" if current_action else current_tool
+    lines.append(f"  ► LATEST CALL: {current_tool}" + (f" (action='{current_action}')" if current_action else ""))
+    lines.append("  ------------------------------------------")
+    
+    macro_tools = []
+    actions = []
+    for k, v in freqs.items():
+        if ":" in k:
+            actions.append((k, v))
+        else:
+            macro_tools.append((k, v))
+            
+    lines.append("  [Macro Tool Utilization]")
+    for tool, count in sorted(macro_tools, key=lambda x: -x[1]):
+        marker = " ◀ [LATEST]" if tool == current_tool else ""
+        lines.append(f"    - {tool:<28s} : {count:3d} calls{marker}")
+        
+    if actions:
+        lines.append("  [Action Detail Breakdown]")
+        for act, count in sorted(actions, key=lambda x: -x[1]):
+            marker = " ◀ [LATEST]" if act == current_act_key else ""
+            lines.append(f"    - {act:<28s} : {count:3d} calls{marker}")
+            
+    lines.append("=" * len(header))
+    return "\n".join(lines)
+
+def _log_tool_invocation(tool_name: str, action: str, params: dict, ctx: Optional[Context] = None):
+    session_id = get_session_id(ctx) if ctx else None
+    sess_key = session_id or "default_session"
+    
+    # Increment usage frequency
+    _SESSION_TOOL_METRICS[sess_key][tool_name] += 1
+    if action:
+        _SESSION_TOOL_METRICS[sess_key][f"{tool_name}:{action}"] += 1
+    
+    # Standard INFO log: Pretty-printed frequency distribution with LATEST marker
+    pretty_summary = _format_pretty_metrics(sess_key, tool_name, action, dict(_SESSION_TOOL_METRICS[sess_key]))
+    logger.info(f"\n[TOOL METRICS UPDATE]\n{pretty_summary}")
+    
+    # DEBUG log: Full parameter payload for deep debugging
+    logger.debug(
+        f"[TOOL TRACE/DEBUG] Session: {sess_key} | Tool: {tool_name} | Action: {action} | Full Parameters: {params}"
+    )
+
+def _log_error_trace_stack(
+    tool_name: str,
+    action: str,
+    tool_params: dict,
+    err: Optional[RPCError] = None,
+    error_msg: Optional[str] = None,
+    ctx: Optional[Context] = None
+):
+    """Logs a detailed 4-step error trace stack at INFO level for complete observability."""
+    session_id = get_session_id(ctx) if ctx else None
+    sess_key = session_id or "default_session"
+    
+    # Extract API method & parameters from RPCError object or tool_params fallback
+    api_method = getattr(err, "method", None) if err else None
+    if not api_method and tool_params and isinstance(tool_params, dict) and "method" in tool_params:
+        api_method = tool_params["method"]
+    api_method = api_method or "N/A"
+    
+    api_params = getattr(err, "params", None) if err else None
+    if not api_params and tool_params and isinstance(tool_params, dict) and "params" in tool_params:
+        api_params = tool_params["params"]
+    api_params = api_params or "N/A"
+    
+    code_val = getattr(err, "code", None) if err else None
+    if code_val is None:
+        code_val = "Validation/Local Error"
+    
+    response_text = error_msg or (f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}" if err else "")
+    
+    header = f"=== ❌ MCP ERROR TRACE STACK [{sess_key}] ==="
+    lines = [
+        "",
+        header,
+        f"  1. MACRO TOOL CALL  : {tool_name}" + (f" (action='{action}')" if action else ""),
+        f"     • Tool Input Params: {tool_params}",
+        f"  2. API CLIENT METHOD: {api_method}",
+        f"     • API Parameters  : {api_params}",
+        f"  3. RECEIVED ERROR   : Code {code_val}",
+        f"  4. TOOL LLM RESPONSE: {response_text.strip()}",
+        "=" * len(header),
+        ""
+    ]
+    logger.info("\n".join(lines))
+
+def _log_tool_error(tool_name: str, action: str, params: dict, error_msg: Optional[str] = None, err: Optional[RPCError] = None, ctx: Optional[Context] = None):
+    _log_error_trace_stack(tool_name=tool_name, action=action, tool_params=params, err=err, error_msg=error_msg, ctx=ctx)
 
 # ==============================================================================
 # LLM SEO & CONTEXT INJECTION
 # ==============================================================================
 
-# Dies ist der globale Scope, den das LLM bei JEDEM Tool sehen wird.
 COMMON_CONTEXT = "Wiki,DokuWiki"
 # Knowledge, Projects, Stations, Documentation
 # Internal knowledge, Project documentation, Product documentation, Manuals, Guides,
@@ -111,12 +221,6 @@ def common_context(func, context=COMMON_CONTEXT):
         sections.append(specific)
     func.__doc__ = ". ".join(sections)
     return func
-
-def api_context(func):
-    return common_context(func, context="DokuWiki JSON-RPC API (Wrapper)")
-
-def api_ext_context(func):
-    return common_context(func, context="DokuWiki Tools extending/postprocessing API calls")
 
 
 # ==============================================================================
@@ -158,10 +262,11 @@ def get_client(ctx: Context = None) -> DokuWikiClient:
                 pass
     return DokuWikiClient()
 
-
-def _unwrap(result: Any, err: Optional[RPCError]) -> Any:
+def _unwrap(result: Any, err: Optional[RPCError], tool_name: str = "", action: str = "", tool_params: dict = None, ctx: Context = None) -> Any:
     if err:
-        return f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+        err_msg = f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+        _log_error_trace_stack(tool_name=tool_name, action=action, tool_params=tool_params or {}, err=err, error_msg=err_msg, ctx=ctx)
+        return err_msg
     return result
 
 def _extract_yake_keywords(text: str, languages: List[str], max_kw: int, n_gram: int = 2) -> List[Tuple[str, float]]:
@@ -256,10 +361,18 @@ def _lint_dokuwiki_syntax(text: str) -> Optional[str]:
     return None
 
 async def _verified_save(client: DokuWikiClient, page: str, text: str, summary: str = "", isminor: bool = False) -> str:
-    """Save a page and verify it was actually persisted. Returns a result string."""
+    """Save a page and verify it was actually persisted or deleted. Returns a result string."""
     res, err = await client.savePage(page=page, text=text, summary=summary, isminor=isminor)
     if err:
         return f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+    
+    # If text is empty, DokuWiki DELETES the page!
+    if text == "" or text is None:
+        verify_res, verify_err = await client.getPageInfo(page=page)
+        if verify_err and verify_err.code == 121:
+            return f"Success: Page '{page}' was deleted (DokuWiki deletes pages when saved with empty content)."
+        return f"Success: Page '{page}' deletion executed."
+
     # Post-write verification: DokuWiki may return True but silently fail to write
     verify_res, verify_err = await client.getPageInfo(page=page)
     if verify_err:
@@ -357,6 +470,7 @@ async def _resolve_namespace(client: DokuWikiClient, namespace: str, ctx: Contex
         "description": "Lists all available raw DokuWiki JSON-RPC methods, their python signatures, and parameters. To execute these raw methods, use the tool wiki_raw_proxy.",
     }
 )
+@common_context
 async def dokuwiki_raw_api_spec() -> str:
     """Returns a list of all raw JSON-RPC API methods and their python signatures in the client."""
     import inspect
@@ -404,7 +518,7 @@ class SearchAndExploreAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@common_context
 async def wiki_search_and_explore(
     action: SearchAndExploreAction,
     query: Optional[Union[str, List[str]]] = Field(default=None, description="Search query or list of queries (required for action='search')"),
@@ -420,6 +534,21 @@ async def wiki_search_and_explore(
     PURPOSE: Explore the wiki by searching pages, listing namespace contents, or tracking recent changes.
     PREREQUISITES: Read permissions.
     """
+    act_str = action.value if hasattr(action, "value") else str(action)
+    _log_tool_invocation(
+        "wiki_search_and_explore",
+        act_str,
+        {
+            "query": query,
+            "namespace": namespace,
+            "depth": depth,
+            "exclusions": exclusions,
+            "pattern": pattern,
+            "modified_after": modified_after,
+            "limit": limit,
+        },
+        ctx,
+    )
     client = get_client(ctx)
     resolved_ns = await _resolve_namespace(client, namespace, ctx)
     
@@ -570,7 +699,7 @@ class ReadContentAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@common_context
 async def wiki_read_content(
     action: ReadContentAction,
     target_id: str = Field(description="Page ID or Media ID to read/inspect"),
@@ -585,13 +714,44 @@ async def wiki_read_content(
     PURPOSE: Read page source text, extract structures, links, media properties, or retrieve NLP keywords.
     PREREQUISITES: Read permissions.
     """
+    act_str = action.value if hasattr(action, "value") else str(action)
+    _log_tool_invocation(
+        "wiki_read_content",
+        act_str,
+        {
+            "target_id": target_id,
+            "section_id": section_id,
+            "rev": rev,
+            "languages": languages,
+            "format": format,
+            "regex_filter": regex_filter,
+        },
+        ctx,
+    )
     client = get_client(ctx)
     resolved_id = await _resolve_page_id(client, target_id, ctx, allow_create=False)
 
+    tool_params = {
+        "target_id": target_id,
+        "section_id": section_id,
+        "rev": rev,
+        "languages": languages,
+        "format": format,
+        "regex_filter": regex_filter,
+    }
+
     if action == ReadContentAction.read_page:
         res, err = await client.getPage(page=resolved_id, rev=rev)
-        if err: return _unwrap(res, err)
-        text = str(res)
+        if err: return _unwrap(res, err, tool_name="wiki_read_content", action=act_str, tool_params=tool_params, ctx=ctx)
+        text = str(res) if res is not None else ""
+        
+        # DokuWiki's core.getPage returns empty string "" for non-existing pages.
+        # Check getPageInfo to verify if the page actually exists or if it's missing.
+        if not text:
+            info_res, info_err = await client.getPageInfo(page=resolved_id, rev=rev)
+            if info_err:
+                return _unwrap(info_res, info_err, tool_name="wiki_read_content", action=act_str, tool_params=tool_params, ctx=ctx)
+            text = "[Note: This page currently exists in DokuWiki but has empty content.]"
         
         if section_id is not None:
             try:
@@ -699,6 +859,7 @@ async def wiki_read_content(
 
 class WriteModifyAction(str, enum.Enum):
     save_page = "save_page"
+    delete_page = "delete_page"
     modify_section = "modify_section"
     patch_page = "patch_page"
     prepare_write = "prepare_write"
@@ -719,7 +880,7 @@ class WriteModifyAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@common_context
 async def wiki_write_and_modify(
     action: WriteModifyAction,
     target_id: Optional[str] = Field(default=None, description="Page ID, Media ID, or transaction ID to modify/write"),
@@ -736,6 +897,20 @@ async def wiki_write_and_modify(
     PURPOSE: Write and modify content: save full pages, update specific sections, apply diff patches, upload/delete media, and manage page locks.
     PREREQUISITES: Write permissions.
     """
+    act_str = action.value if hasattr(action, "value") else str(action)
+    _log_tool_invocation(
+        "wiki_write_and_modify",
+        act_str,
+        {
+            "target_id": target_id,
+            "summary": summary,
+            "section_id": section_id,
+            "transaction_id": transaction_id,
+            "overwrite": overwrite,
+            "dry_run": dry_run,
+        },
+        ctx,
+    )
     client = get_client(ctx)
 
     # 1. Stateful Two-Phase Commit: Commit/Rollback actions
@@ -763,7 +938,15 @@ async def wiki_write_and_modify(
         if content is not None:
             lint_err = _lint_dokuwiki_syntax(content)
             if lint_err:
-                return f"Write Aborted: {lint_err}"
+                err_msg = f"Write Aborted: {lint_err}"
+                _log_error_trace_stack(
+                    tool_name="wiki_write_and_modify",
+                    action=act_str,
+                    tool_params={"target_id": target_id, "content": content},
+                    error_msg=err_msg,
+                    ctx=ctx
+                )
+                return err_msg
 
     if action == WriteModifyAction.save_page:
         if content is None:
@@ -775,6 +958,14 @@ async def wiki_write_and_modify(
             return f"--- DRY RUN (DIFF PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
             
         return await _verified_save(client, page=resolved_id, text=content, summary=summary or "")
+
+    elif action == WriteModifyAction.delete_page:
+        if dry_run:
+            res, err = await client.getPage(page=resolved_id)
+            orig = str(res) if not err else ""
+            diff = "".join(difflib.unified_diff(orig.splitlines(True), [""], f"a/{resolved_id}", f"b/{resolved_id} (DELETED)"))
+            return f"--- DRY RUN (DELETE PREVIEW) ---\n```diff\n{diff or 'No changes'}\n```"
+        return await _verified_save(client, page=resolved_id, text="", summary=summary or "Page deleted")
 
     elif action == WriteModifyAction.prepare_write:
         if content is None:
@@ -894,7 +1085,7 @@ class AdminMetaAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@common_context
 async def wiki_admin_and_meta(
     action: AdminMetaAction,
     page_id: Optional[str] = Field(default=None, description="Target Page ID (required for acl_check)"),
@@ -907,6 +1098,18 @@ async def wiki_admin_and_meta(
     PURPOSE: Administration and Metadata - View active user profile, check specific ACL permissions, review wiki software version metadata, set active session namespace, or log off.
     PREREQUISITES: None.
     """
+    act_str = action.value if hasattr(action, "value") else str(action)
+    _log_tool_invocation(
+        "wiki_admin_and_meta",
+        act_str,
+        {
+            "page_id": page_id,
+            "user": user,
+            "groups": groups,
+            "namespace": namespace,
+        },
+        ctx,
+    )
     client = get_client(ctx)
     if action == AdminMetaAction.who_ami:
         res, err = await client.whoAmI()
@@ -955,22 +1158,22 @@ async def wiki_admin_and_meta(
 
 @mcp.tool(
     annotations={
-        "title": "Low-level Raw API Proxy Fallback",
-        "description": "Enables raw JSON-RPC invocations directly against the DokuWiki API. To discover available raw method names, parameter signatures, and types, read the resource dokuwiki://raw_api_spec first.",
+        "title": "Low-level Raw API Proxy Fallback [ULTIMA RATIO / LAST RESORT ONLY]",
+        "description": "ULTIMA RATIO / FALLBACK ONLY: Use this tool ONLY if the consolidated macro-tools (wiki_search_and_explore, wiki_read_content, wiki_write_and_modify, wiki_admin_and_meta) do NOT support your required operation. Enables raw JSON-RPC invocations directly against the DokuWiki API. To discover available raw method names, parameter signatures, and types, read the resource dokuwiki://raw_api_spec first.",
         "readOnlyHint": False,
         "idempotentHint": False,
         "destructiveHint": True,
         "openWorldHint": True,
     }
 )
-@api_ext_context
+@common_context
 async def wiki_raw_proxy(
-    method: str = Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). To find method names, read the resource 'dokuwiki://raw_api_spec'."),
+    method: str = Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). Read 'dokuwiki://raw_api_spec' for method list. ULTIMA RATIO: Prefer macro-tools first!"),
     params: Dict[str, Any] = Field(default_factory=dict, description="JSON object containing key-value parameters matching the client signature parameters (e.g. {'page': 'playground:seite'})."),
     ctx: Context = None
 ) -> str:
     """
-    PURPOSE: Low-level API proxy fallback. Allows invoking any raw JSON-RPC method directly.
+    PURPOSE: [ULTIMA RATIO / LAST RESORT FALLBACK ONLY] Allows invoking any raw JSON-RPC method directly. DO NOT USE THIS TOOL IF HIGH-LEVEL TOOLS (wiki_search_and_explore, wiki_read_content, wiki_write_and_modify, wiki_admin_and_meta) CAN EXECUTE YOUR TASK.
     PREREQUISITES: None.
     INPUT FORMAT: 
       - method: Raw DokuWiki JSON-RPC method name (e.g. 'core.getPageInfo').
@@ -979,12 +1182,18 @@ async def wiki_raw_proxy(
       - Success: Returns the stringified/serialized raw response JSON payload from the DokuWiki server.
       - Failure: Returns a formatted error string 'RPCError (Code X): message'.
     CROSS-REFERENCE: 
-      - Read 'dokuwiki://raw_api_spec' to see the complete list of available methods and signatures.
+      - High-Level Macro-Tools: Always check wiki_search_and_explore, wiki_read_content, wiki_write_and_modify, wiki_admin_and_meta first.
+      - Spec: Read 'dokuwiki://raw_api_spec' to see the complete list of available methods and signatures.
     """
+    _log_tool_invocation("wiki_raw_proxy", method, {"method": method, "params": params}, ctx)
     client = get_client(ctx)
     res, err = await client._rpc_call(method=method, params=params)
     if err:
-        return f"RPCError (Code {err.code}): {err.message}"
+        err_msg = f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
+        _log_tool_error("wiki_raw_proxy", method, {"method": method, "params": params}, error_msg=err_msg, err=err, ctx=ctx)
+        return err_msg
+    if res == "" and method in ("core.getPage", "core.getPageHTML", "core.getPageVersion", "core.getPageInfo"):
+        return '""\n[RAW API HINT: DokuWiki returned an empty string. DokuWiki\'s core.getPage API returns "" when a page or revision does not exist. Execute core.getPageInfo or use macro-tool wiki_search_and_explore to check existence.]'
     return str(res)
 
 
@@ -1003,6 +1212,8 @@ if __name__ == "__main__":
         
         def patched_init(self, *args, **kwargs):
             kwargs['host'] = os.environ.get("HOST", "0.0.0.0")
+            kwargs['log_level'] = LOG_LEVEL_NAME.lower()
+            kwargs['access_log'] = (LOG_LEVEL == logging.DEBUG)
             
             # --- HOST HEADER FIX (Production-Ready) ---
             # Wird nur aktiviert, wenn MCP_ALLOW_ALL_HOSTS=true gesetzt ist
