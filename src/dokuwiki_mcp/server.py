@@ -520,14 +520,24 @@ class SearchAndExploreAction(str, enum.Enum):
 )
 @common_context
 async def wiki_search_and_explore(
-    action: SearchAndExploreAction,
-    query: Annotated[Optional[Union[str, List[str]]], Field(description="Search query or list of queries (required for action='search')")] = None,
-    namespace: Annotated[Optional[str], Field(description="Namespace to explore or restrict search to")] = "",
-    depth: Annotated[int, Field(description="Depth of exploration/listing (0 for infinite, defaults to 1)")] = 1,
-    exclusions: Annotated[Optional[List[str]], Field(description="List of namespaces to exclude")] = None,
-    pattern: Annotated[Optional[str], Field(description="Regex pattern (PHP style) to filter IDs")] = None,
-    modified_after: Annotated[Optional[str], Field(description="Filter pages modified after timestamp or ISO date string")] = None,
-    limit: Annotated[int, Field(description="Max results to return (defaults to 50)")] = 50,
+    action: Annotated[
+        SearchAndExploreAction,
+        Field(
+            description=(
+                "Specifies the search/exploration action to execute:\n"
+                "- 'search': Perform full-text search across wiki pages (requires 'query').\n"
+                "- 'list': List pages and media items within a namespace (uses 'namespace', 'depth', 'exclusions', 'pattern').\n"
+                "- 'recent_changes': Retrieve recent modifications across the wiki (uses 'modified_after', 'limit')."
+            )
+        )
+    ],
+    query: Annotated[Optional[Union[str, List[str]]], Field(description="Search query string or list of queries (required when action='search')")] = None,
+    namespace: Annotated[Optional[str], Field(description="Namespace path to explore or restrict search to (e.g. 'wiki:syntax' or '')")] = "",
+    depth: Annotated[int, Field(description="Recursion depth for namespace listing (0 for unlimited depth, default: 1)")] = 1,
+    exclusions: Annotated[Optional[List[str]], Field(description="List of namespace paths to exclude from listing or search results")] = None,
+    pattern: Annotated[Optional[str], Field(description="Regex pattern (PHP regex style) to filter page/media IDs")] = None,
+    modified_after: Annotated[Optional[str], Field(description="Filter items modified after UNIX timestamp or ISO date string (used with recent_changes)")] = None,
+    limit: Annotated[int, Field(description="Maximum number of search or recent change items to return (default: 50)")] = 50,
     ctx: Context = None
 ) -> str:
     """
@@ -701,13 +711,25 @@ class ReadContentAction(str, enum.Enum):
 )
 @common_context
 async def wiki_read_content(
-    action: ReadContentAction,
-    target_id: Annotated[str, Field(description="Page ID or Media ID to read/inspect")],
-    section_id: Annotated[Optional[Union[str, int]], Field(description="Optional 1-based section index (for read_page or get_structure)")] = None,
-    rev: Annotated[int, Field(description="Revision timestamp (0 for latest)")] = 0,
-    languages: Annotated[List[str], Field(description="Language codes for keyword extraction (e.g. ['de', 'en'])")] = ["de", "en"],
-    format: Annotated[str, Field(description="Format output as 'raw' or translate to 'markdown'")] = "markdown",
-    regex_filter: Annotated[Optional[str], Field(description="Optional regex pattern to filter lines returned in read_page")] = None,
+    action: Annotated[
+        ReadContentAction,
+        Field(
+            description=(
+                "Specifies the content reading/analysis mode:\n"
+                "- 'read_page': Read page source text (supports section_id, rev, format, regex_filter).\n"
+                "- 'get_structure': Extract Table of Contents (TOC) and section hierarchy (supports section_id).\n"
+                "- 'get_links': Fetch all internal wiki links and external URLs from target_id.\n"
+                "- 'read_media': Retrieve metadata and properties for a binary media file/attachment.\n"
+                "- 'extract_insights': Perform TF-IDF keyphrase and keyword extraction (uses 'languages')."
+            )
+        )
+    ],
+    target_id: Annotated[str, Field(description="Page ID (e.g. 'playground:seite') or Media ID (e.g. 'wiki:logo.png') to read or inspect")],
+    section_id: Annotated[Optional[Union[str, int]], Field(description="Optional 1-based section index or header ID (for read_page or get_structure)")] = None,
+    rev: Annotated[int, Field(description="Revision timestamp (0 for current version, or past UNIX timestamp)")] = 0,
+    languages: Annotated[List[str], Field(description="List of ISO language codes for keyword extraction (e.g. ['de', 'en'])")] = ["de", "en"],
+    format: Annotated[str, Field(description="Output text conversion format: 'markdown' (translated) or 'raw' (DokuWiki syntax)")] = "markdown",
+    regex_filter: Annotated[Optional[str], Field(description="Optional regular expression pattern to filter returned lines in read_page")] = None,
     ctx: Context = None
 ) -> str:
     """
@@ -882,15 +904,33 @@ class WriteModifyAction(str, enum.Enum):
 )
 @common_context
 async def wiki_write_and_modify(
-    action: WriteModifyAction,
-    target_id: Annotated[Optional[str], Field(description="Page ID, Media ID, or transaction ID to modify/write")] = None,
-    content: Annotated[Optional[str], Field(description="Full page content, section content, or base64 data for media")] = None,
-    summary: Annotated[Optional[str], Field(description="Edit summary description")] = "",
-    section_id: Annotated[Optional[Union[str, int]], Field(description="1-based section index (for action='modify_section')")] = None,
-    patch_diff: Annotated[Optional[str], Field(description="Unified diff text (for action='patch_page')")] = None,
-    transaction_id: Annotated[Optional[str], Field(description="Transaction ID (required for action='commit' or 'rollback')")] = None,
-    overwrite: Annotated[bool, Field(description="Whether to overwrite existing media files (action='save_media')")] = False,
-    dry_run: Annotated[bool, Field(description="Two-Phase Commit: Show dry-run modifications as a diff without saving")] = False,
+    action: Annotated[
+        WriteModifyAction,
+        Field(
+            description=(
+                "Specifies the writing or mutation action to execute:\n"
+                "- 'save_page': Save/overwrite complete raw markup of target_id (uses 'content', 'summary').\n"
+                "- 'delete_page': Delete page target_id (sets content to empty string).\n"
+                "- 'modify_section': Replace or append content of a specific 1-based section_id (uses 'content', 'summary').\n"
+                "- 'patch_page': Apply a unified diff patch to target_id (uses 'patch_diff').\n"
+                "- 'prepare_write': Stage a transaction for multi-step write operations (returns transaction_id).\n"
+                "- 'commit': Commit a staged transaction by transaction_id.\n"
+                "- 'rollback': Abort and discard a staged transaction by transaction_id.\n"
+                "- 'save_media': Upload binary attachment (uses 'target_id', base64 'content', 'overwrite').\n"
+                "- 'delete_media': Delete a media file attachment target_id.\n"
+                "- 'lock': Acquire an edit lock on target_id.\n"
+                "- 'unlock': Release an edit lock on target_id."
+            )
+        )
+    ],
+    target_id: Annotated[Optional[str], Field(description="Page ID, Media ID, or transaction ID to modify/write (required for page/media operations)")] = None,
+    content: Annotated[Optional[str], Field(description="Page text content, section text, or base64-encoded string for media uploads")] = None,
+    summary: Annotated[Optional[str], Field(description="Brief summary comment describing the edit")] = "",
+    section_id: Annotated[Optional[Union[str, int]], Field(description="1-based section index (required for action='modify_section')")] = None,
+    patch_diff: Annotated[Optional[str], Field(description="Unified diff text block (required for action='patch_page')")] = None,
+    transaction_id: Annotated[Optional[str], Field(description="Staged transaction UUID string (required for action='commit' or 'rollback')")] = None,
+    overwrite: Annotated[bool, Field(description="If true, overwrites existing media files during save_media (default: false)")] = False,
+    dry_run: Annotated[bool, Field(description="Two-Phase Commit dry-run: Preview modifications as a unified diff without saving to DokuWiki")] = False,
     ctx: Context = None
 ) -> str:
     """
@@ -1087,11 +1127,23 @@ class AdminMetaAction(str, enum.Enum):
 )
 @common_context
 async def wiki_admin_and_meta(
-    action: AdminMetaAction,
-    page_id: Annotated[Optional[str], Field(description="Target Page ID (required for acl_check)")] = None,
-    user: Annotated[Optional[str], Field(description="User to check ACL permissions for")] = "",
-    groups: Annotated[Optional[List[str]], Field(description="Groups to check ACL permissions for")] = None,
-    namespace: Annotated[Optional[str], Field(description="Namespace to make active for current session (required for set_namespace)")] = None,
+    action: Annotated[
+        AdminMetaAction,
+        Field(
+            description=(
+                "Specifies the administrative or meta property action to execute:\n"
+                "- 'who_ami': Retrieve current authenticated user profile, permissions, and group memberships.\n"
+                "- 'acl_check': Evaluate user/group permissions for page_id (requires 'page_id', optional 'user', 'groups').\n"
+                "- 'system_info': Fetch DokuWiki release version, API version, and server timestamp.\n"
+                "- 'logoff': Terminate current user session authentication.\n"
+                "- 'set_namespace': Set active default namespace for current session (requires 'namespace')."
+            )
+        )
+    ],
+    page_id: Annotated[Optional[str], Field(description="Target Page ID (required for action='acl_check')")] = None,
+    user: Annotated[Optional[str], Field(description="User identifier to evaluate permissions for in acl_check (optional, defaults to current user)")] = "",
+    groups: Annotated[Optional[List[str]], Field(description="Group names to evaluate permissions for in acl_check")] = None,
+    namespace: Annotated[Optional[str], Field(description="Namespace path to set as active session default (required for action='set_namespace')")] = None,
     ctx: Context = None
 ) -> str:
     """
