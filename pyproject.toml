@@ -10,7 +10,8 @@ dependencies = [
     "pydantic-settings>=2.0.0",
     "jinja2>=3.1.0",
     "uvicorn>=0.30.0",
-    "yake>=0.7.3"
+    "yake>=0.7.3",
+    "cachetools>=5.3.0"
 ]
 
 [build-system]

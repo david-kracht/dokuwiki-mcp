@@ -95,7 +95,7 @@ Die folgende Tabelle gibt den aktuellen Reifegrad und die Abdeckung der Architek
 | | **Content Chunking / Flat-File Read** | 🛑 Postponed | Dateisystem / PHP Plugin | - | Direkter `.txt` Datei-Zugriff / AST Tree Parsing auf später verschoben |
 | **Read & Search (Output-Optimierung)** | **Multi-Query Batching & Compound Action Chaining** | ✅ Implementiert | `wiki_batch_execute` & `wiki_search_and_explore` | Heterogene Parallel-Ausführung von Macro-Tool-Arrays in einem einzigen Roundtrip | - |
 | | **Negative Prompting** | ✅ Implementiert | `wiki_search_and_explore` (`exclusions: List[str]`) | Serverseitiges Filtern und Ausschließen irrelevanter Namespaces | - |
-| | **Fuzzy Resolution** | ✅ Implementiert | `_resolve_page_id`, `_resolve_namespace` | Levenshtein-Distanz Korrektur bei Tippfehlern in IDs/Namespaces | - |
+| | **Fuzzy Resolution** | ✅ Implementiert | `_resolve_page_id`, `_resolve_media_id`, `_resolve_namespace` | Levenshtein-Distanz Korrektur bei Tippfehlern in Page/Media IDs & Namespaces | - |
 | | **Regex-gestützte Extraktion** | ✅ Implementiert | `wiki_search_and_explore` (`pattern`), `wiki_read_content` (`regex_filter`) | Zeilen- & ID-Filtering nach Regex-Muster | - |
 | | **Zeitliche Filter** | ✅ Implementiert | `wiki_search_and_explore` (`modified_after`) | Datums- & Timestamp-basierte Einschränkung der Treffermenge | - |
 | | **Stateful Namespace Traversal** | ✅ Implementiert | `wiki_admin_and_meta` (`action="set_namespace"`), `_SESSION_NAMESPACES` | In-Memory Session-Speicherung des aktiven Namespace Contexts | - |
@@ -106,4 +106,5 @@ Die folgende Tabelle gibt den aktuellen Reifegrad und die Abdeckung der Architek
 | | **Tone & Voice Alignment** | ⏳ Geplant (P1) | `wiki_read_content` | Standard Output Formatting | Fehlt im Code (Namespace-spezifische Stilrichtlinien im Response-Header) |
 | | **Automated Taxonomy** | ⏳ Geplant (P1) | `wiki_write_and_modify` | YAKE Keyword Matcher vorbereitet | Fehlt im Code (Auto-Injektion des `{{tag>...}}` Blocks beim Speichern) |
 | **Tracing & Infrastructure** | **Session Metrics & Traceability** | ✅ Implementiert | `_log_tool_invocation`, `_log_tool_error`, `_log_error_trace_stack` | Request-ID Tracing, strukturierte JSON Audit Logs & Error Metrics | - |
+| | **6-Tier Domain Caching & Invalidation** | ✅ Implementiert | `cachetools.TTLCache` in `server.py` | Granulare 6-Tier Caches (Page/Media List, Info, Content + System Meta) & Hit Metrics Summary Logger | - |
 

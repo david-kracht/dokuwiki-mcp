@@ -19,6 +19,7 @@ import logging
 import uuid
 from typing import Any, List, Optional, Union, Annotated, Tuple, Dict
 from pydantic import BaseModel, Field
+from cachetools import TTLCache
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import PromptMessage, TextContent
@@ -200,9 +201,156 @@ def _log_error_trace_stack(
 def _log_tool_error(tool_name: str, action: str, params: dict, error_msg: Optional[str] = None, err: Optional[RPCError] = None, ctx: Optional[Context] = None):
     _log_error_trace_stack(tool_name=tool_name, action=action, tool_params=params, err=err, error_msg=error_msg, ctx=ctx)
 
+
 # ==============================================================================
-# LLM SEO & CONTEXT INJECTION
+# 6-TIER DOMAIN CACHING & METRICS ENGINE
 # ==============================================================================
+
+page_list_cache = TTLCache(maxsize=1000, ttl=180)
+page_info_cache = TTLCache(maxsize=50000, ttl=120)
+page_content_cache = TTLCache(maxsize=50000, ttl=120)
+
+media_list_cache = TTLCache(maxsize=1000, ttl=180)
+media_info_cache = TTLCache(maxsize=50000, ttl=600)
+media_content_cache = TTLCache(maxsize=2000, ttl=600)
+
+system_meta_cache = TTLCache(maxsize=50, ttl=3600)
+
+_SESSION_CACHE_METRICS: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+
+def _format_pretty_cache_metrics(sess_id: str, current_cache: str, current_target: str, freqs: Dict[str, int]) -> str:
+    """Formats session cache hit utilization into a clean, pretty-printed block with [LATEST] markers."""
+    header = f"=== CACHE METRICS SUMMARY [{sess_id}] ==="
+    lines = [header]
+    
+    current_hit_key = f"{current_cache}:{current_target}" if current_target else current_cache
+    lines.append(f"  ► LATEST HIT: {current_cache}" + (f" (target='{current_target}')" if current_target else ""))
+    lines.append("  ------------------------------------------")
+    
+    cache_instances = []
+    target_hits = []
+    for k, v in freqs.items():
+        if ":" in k:
+            target_hits.append((k, v))
+        else:
+            cache_instances.append((k, v))
+            
+    lines.append("  [Cache Instance Hit Breakdown]")
+    for cache_name, count in sorted(cache_instances, key=lambda x: -x[1]):
+        marker = " ◀ [LATEST]" if cache_name == current_cache else ""
+        lines.append(f"    - {cache_name:<28s} : {count:3d} hits{marker}")
+        
+    if target_hits:
+        lines.append("  [Top Target Hits]")
+        for tgt, count in sorted(target_hits, key=lambda x: -x[1])[:10]:
+            marker = " ◀ [LATEST]" if tgt == current_hit_key else ""
+            lines.append(f"    - {tgt:<28s} : {count:3d} hits{marker}")
+            
+    lines.append("=" * len(header))
+    return "\n".join(lines)
+
+def _log_cache_hit(cache_name: str, target: str = "", ctx: Optional[Context] = None):
+    session_id = get_session_id(ctx) if ctx else None
+    sess_key = session_id or "default_session"
+    
+    _SESSION_CACHE_METRICS[sess_key][cache_name] += 1
+    if target:
+        _SESSION_CACHE_METRICS[sess_key][f"{cache_name}:{target}"] += 1
+        
+    pretty_summary = _format_pretty_cache_metrics(sess_key, cache_name, target, dict(_SESSION_CACHE_METRICS[sess_key]))
+    logger.info(f"\n[CACHE HIT UPDATE]\n{pretty_summary}")
+
+def _invalidate_page_cache(page_id: Optional[str] = None, is_structure_change: bool = False):
+    """Granular invalidation for page domain."""
+    if page_id:
+        page_info_cache.pop((page_id, 0), None)
+        page_info_cache.pop(page_id, None)
+        keys_to_pop = [k for k in page_content_cache.keys() if (isinstance(k, tuple) and k[0] == page_id) or k == page_id]
+        for k in keys_to_pop:
+            page_content_cache.pop(k, None)
+    else:
+        page_info_cache.clear()
+        page_content_cache.clear()
+        
+    if is_structure_change or not page_id:
+        page_list_cache.clear()
+    logger.info(f"[CACHE INVALIDATE] Page Domain (target='{page_id or 'ALL'}', structure_changed={is_structure_change})")
+
+def _invalidate_media_cache(media_id: Optional[str] = None, is_structure_change: bool = False):
+    """Granular invalidation for media domain."""
+    if media_id:
+        media_info_cache.pop((media_id, 0), None)
+        media_info_cache.pop(media_id, None)
+        media_content_cache.pop((media_id, 0), None)
+        media_content_cache.pop(media_id, None)
+    else:
+        media_info_cache.clear()
+        media_content_cache.clear()
+        
+    if is_structure_change or not media_id:
+        media_list_cache.clear()
+    logger.info(f"[CACHE INVALIDATE] Media Domain (target='{media_id or 'ALL'}', structure_changed={is_structure_change})")
+
+async def cached_list_pages(client: DokuWikiClient, namespace: str = "", depth: int = 0, ctx: Context = None):
+    cache_key = (namespace, depth)
+    if cache_key in page_list_cache:
+        _log_cache_hit("page_list", namespace or "[ROOT]", ctx)
+        return page_list_cache[cache_key], None
+    res, err = await client.listPages(namespace=namespace, depth=depth)
+    if not err and res is not None:
+        page_list_cache[cache_key] = res
+    return res, err
+
+async def cached_get_page_info(client: DokuWikiClient, page: str, rev: int = 0, ctx: Context = None):
+    cache_key = (page, rev)
+    if cache_key in page_info_cache:
+        _log_cache_hit("page_info", page, ctx)
+        return page_info_cache[cache_key], None
+    res, err = await client.getPageInfo(page=page, rev=rev)
+    if not err and res is not None:
+        page_info_cache[cache_key] = res
+    return res, err
+
+async def cached_get_page(client: DokuWikiClient, page: str, rev: int = 0, ctx: Context = None):
+    cache_key = (page, rev)
+    if cache_key in page_content_cache:
+        _log_cache_hit("page_content", page, ctx)
+        return page_content_cache[cache_key], None
+    res, err = await client.getPage(page=page, rev=rev)
+    if not err and res is not None:
+        page_content_cache[cache_key] = res
+    return res, err
+
+async def cached_list_media(client: DokuWikiClient, namespace: str = "", depth: int = 0, ctx: Context = None):
+    cache_key = (namespace, depth)
+    if cache_key in media_list_cache:
+        _log_cache_hit("media_list", namespace or "[ROOT]", ctx)
+        return media_list_cache[cache_key], None
+    res, err = await client.listMedia(namespace=namespace, depth=depth)
+    if not err and res is not None:
+        media_list_cache[cache_key] = res
+    return res, err
+
+async def cached_get_media_info(client: DokuWikiClient, media: str, rev: int = 0, ctx: Context = None):
+    cache_key = (media, rev)
+    if cache_key in media_info_cache:
+        _log_cache_hit("media_info", media, ctx)
+        return media_info_cache[cache_key], None
+    res, err = await client.getMediaInfo(media=media, rev=rev)
+    if not err and res is not None:
+        media_info_cache[cache_key] = res
+    return res, err
+
+async def cached_get_media(client: DokuWikiClient, media: str, rev: int = 0, ctx: Context = None):
+    cache_key = (media, rev)
+    if cache_key in media_content_cache:
+        _log_cache_hit("media_content", media, ctx)
+        return media_content_cache[cache_key], None
+    res, err = await client.getMedia(media=media, rev=rev)
+    if not err and res is not None:
+        media_content_cache[cache_key] = res
+    return res, err
+
 
 COMMON_CONTEXT = "Wiki,DokuWiki"
 # Knowledge, Projects, Stations, Documentation
@@ -366,15 +514,19 @@ async def _verified_save(client: DokuWikiClient, page: str, text: str, summary: 
     if err:
         return f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
     
+    # Invalidate page domain cache
+    is_deleted = (text == "" or text is None)
+    _invalidate_page_cache(page_id=page, is_structure_change=is_deleted)
+    
     # If text is empty, DokuWiki DELETES the page!
-    if text == "" or text is None:
+    if is_deleted:
         verify_res, verify_err = await client.getPageInfo(page=page)
         if verify_err and verify_err.code == 121:
             return f"Success: Page '{page}' was deleted (DokuWiki deletes pages when saved with empty content)."
         return f"Success: Page '{page}' deletion executed."
 
     # Post-write verification: DokuWiki may return True but silently fail to write
-    verify_res, verify_err = await client.getPageInfo(page=page)
+    verify_res, verify_err = await cached_get_page_info(client, page=page)
     if verify_err:
         return (
             f"WRITE FAILED (Silent Failure): savePage returned {res} but the page '{page}' "
@@ -393,16 +545,13 @@ async def _resolve_page_id(client: DokuWikiClient, page_id: str, ctx: Context = 
     active_ns = _SESSION_NAMESPACES.get(session_id) if session_id else None
     
     resolved_id = page_id
-    # Only prepend the active namespace for bare (non-namespaced) page names.
-    # If the page_id already contains a ':', it is already namespace-qualified
-    # and should NOT be prefixed (e.g. 'stadtbibliothek:bestand:zeitschriften').
     if active_ns and ":" not in page_id and not page_id.startswith(":"):
         resolved_id = f"{active_ns}:{page_id}"
         
     if resolved_id.startswith(":"):
         resolved_id = resolved_id[1:]
         
-    res, err = await client.getPageInfo(page=resolved_id)
+    res, err = await cached_get_page_info(client, page=resolved_id, ctx=ctx)
     if not err:
         return resolved_id
 
@@ -410,7 +559,7 @@ async def _resolve_page_id(client: DokuWikiClient, page_id: str, ctx: Context = 
     if allow_create:
         return resolved_id
 
-    pages_res, pages_err = await client.listPages(depth=0, namespace="")
+    pages_res, pages_err = await cached_list_pages(client, depth=0, namespace="", ctx=ctx)
     if pages_err or not pages_res:
         return resolved_id
     
@@ -421,6 +570,43 @@ async def _resolve_page_id(client: DokuWikiClient, page_id: str, ctx: Context = 
             return pid
             
     matches = difflib.get_close_matches(resolved_id, page_ids, n=1, cutoff=0.7)
+    if matches:
+        return matches[0]
+        
+    return resolved_id
+
+async def _resolve_media_id(client: DokuWikiClient, media_id: str, ctx: Context = None, allow_create: bool = False) -> str:
+    if not media_id:
+        return media_id
+        
+    session_id = get_session_id(ctx)
+    active_ns = _SESSION_NAMESPACES.get(session_id) if session_id else None
+    
+    resolved_id = media_id
+    if active_ns and ":" not in media_id and not media_id.startswith(":"):
+        resolved_id = f"{active_ns}:{media_id}"
+        
+    if resolved_id.startswith(":"):
+        resolved_id = resolved_id[1:]
+        
+    res, err = await cached_get_media_info(client, media=resolved_id, ctx=ctx)
+    if not err:
+        return resolved_id
+
+    if allow_create:
+        return resolved_id
+
+    media_res, media_err = await cached_list_media(client, depth=0, namespace="", ctx=ctx)
+    if media_err or not media_res:
+        return resolved_id
+    
+    media_ids = [m.id for m in media_res if hasattr(m, "id") and m.id]
+    lower_media_id = resolved_id.lower()
+    for mid in media_ids:
+        if mid.lower() == lower_media_id:
+            return mid
+            
+    matches = difflib.get_close_matches(resolved_id, media_ids, n=1, cutoff=0.7)
     if matches:
         return matches[0]
         
@@ -440,7 +626,7 @@ async def _resolve_namespace(client: DokuWikiClient, namespace: str, ctx: Contex
     if resolved_ns.startswith(":"):
         resolved_ns = resolved_ns[1:]
 
-    pages_res, pages_err = await client.listPages(depth=0, namespace="")
+    pages_res, pages_err = await cached_list_pages(client, depth=0, namespace="", ctx=ctx)
     if pages_err or not pages_res:
         return resolved_ns
         
@@ -617,8 +803,8 @@ async def wiki_search_and_explore(
 
     elif action == SearchAndExploreAction.list_items:
         (p_res, p_err), (m_res, m_err) = await asyncio.gather(
-            client.listPages(namespace=resolved_ns, depth=depth),
-            client.listMedia(namespace=resolved_ns, depth=depth)
+            cached_list_pages(client, namespace=resolved_ns, depth=depth, ctx=ctx),
+            cached_list_media(client, namespace=resolved_ns, depth=depth, ctx=ctx)
         )
         if p_err and m_err:
             return f"Error: Could not list items in namespace '{resolved_ns}'."
@@ -763,14 +949,14 @@ async def wiki_read_content(
     }
 
     if action == ReadContentAction.read_page:
-        res, err = await client.getPage(page=resolved_id, rev=rev)
+        res, err = await cached_get_page(client, page=resolved_id, rev=rev, ctx=ctx)
         if err: return _unwrap(res, err, tool_name="wiki_read_content", action=act_str, tool_params=tool_params, ctx=ctx)
         text = str(res) if res is not None else ""
         
         # DokuWiki's core.getPage returns empty string "" for non-existing pages.
         # Check getPageInfo to verify if the page actually exists or if it's missing.
         if not text:
-            info_res, info_err = await client.getPageInfo(page=resolved_id, rev=rev)
+            info_res, info_err = await cached_get_page_info(client, page=resolved_id, rev=rev, ctx=ctx)
             if info_err:
                 return _unwrap(info_res, info_err, tool_name="wiki_read_content", action=act_str, tool_params=tool_params, ctx=ctx)
             text = "[Note: This page currently exists in DokuWiki but has empty content.]"
@@ -820,8 +1006,8 @@ async def wiki_read_content(
 
     elif action == ReadContentAction.get_structure:
         (t_res, t_err), (i_res, i_err) = await asyncio.gather(
-            client.getPage(page=resolved_id, rev=rev), 
-            client.getPageInfo(page=resolved_id, rev=rev)
+            cached_get_page(client, page=resolved_id, rev=rev, ctx=ctx), 
+            cached_get_page_info(client, page=resolved_id, rev=rev, ctx=ctx)
         )
         if t_err: return _unwrap(t_res, t_err)
         text = str(t_res)
@@ -853,13 +1039,14 @@ async def wiki_read_content(
         return "\n".join(out)
 
     elif action == ReadContentAction.read_media:
+        resolved_media = await _resolve_media_id(client, target_id, ctx, allow_create=False)
         (i_res, i_err), (m_res, m_err) = await asyncio.gather(
-            client.getMediaInfo(media=target_id, rev=rev),
-            client.getMedia(media=target_id, rev=rev)
+            cached_get_media_info(client, media=resolved_media, rev=rev, ctx=ctx),
+            cached_get_media(client, media=resolved_media, rev=rev, ctx=ctx)
         )
         if i_err: return _unwrap(i_res, i_err)
         
-        out = [f"--- Media Info: '{target_id}' ---"]
+        out = [f"--- Media Info: '{resolved_media}' ---"]
         for k, v in getattr(i_res, "model_dump", lambda: {})().items():
             out.append(f"  {k}: {v}")
         if not m_err and m_res:
@@ -869,7 +1056,7 @@ async def wiki_read_content(
         return "\n".join(out)
 
     elif action == ReadContentAction.extract_insights:
-        res, err = await client.getPage(page=resolved_id, rev=rev)
+        res, err = await cached_get_page(client, page=resolved_id, rev=rev, ctx=ctx)
         if err: return _unwrap(res, err)
         text = str(res)
         kws = _extract_yake_keywords(text, languages, 15, 2)
@@ -1092,11 +1279,17 @@ async def wiki_write_and_modify(
     elif action == WriteModifyAction.save_media:
         if content is None:
             return "Error: 'content' base64 data is required for save_media."
-        res, err = await client.saveMedia(media=target_id, base64=content, overwrite=overwrite)
+        resolved_media = await _resolve_media_id(client, target_id, ctx, allow_create=True)
+        res, err = await client.saveMedia(media=resolved_media, base64=content, overwrite=overwrite)
+        if not err:
+            _invalidate_media_cache(media_id=resolved_media, is_structure_change=True)
         return str(_unwrap(res, err))
 
     elif action == WriteModifyAction.delete_media:
-        res, err = await client.deleteMedia(media=target_id)
+        resolved_media = await _resolve_media_id(client, target_id, ctx, allow_create=False)
+        res, err = await client.deleteMedia(media=resolved_media)
+        if not err:
+            _invalidate_media_cache(media_id=resolved_media, is_structure_change=True)
         return str(_unwrap(res, err))
 
     elif action == WriteModifyAction.lock:
@@ -1164,12 +1357,17 @@ async def wiki_admin_and_meta(
     )
     client = get_client(ctx)
     if action == AdminMetaAction.who_ami:
+        if "who_ami" in system_meta_cache:
+            _log_cache_hit("system_meta", "who_ami", ctx)
+            return system_meta_cache["who_ami"]
         res, err = await client.whoAmI()
         if err: return _unwrap(res, err)
         out = ["--- User Session Details ---"]
         for k, v in getattr(res, "model_dump", lambda: {})().items():
             out.append(f"  {k}: {v}")
-        return "\n".join(out)
+        res_str = "\n".join(out)
+        system_meta_cache["who_ami"] = res_str
+        return res_str
 
     elif action == AdminMetaAction.acl_check:
         if not page_id:
@@ -1179,6 +1377,9 @@ async def wiki_admin_and_meta(
         return str(_unwrap(res, err))
 
     elif action == AdminMetaAction.system_info:
+        if "system_info" in system_meta_cache:
+            _log_cache_hit("system_meta", "system_info", ctx)
+            return system_meta_cache["system_info"]
         (v_res, v_err), (w_res, w_err), (t_res, t_err) = await asyncio.gather(
             client.getAPIVersion(),
             client.getWikiVersion(),
@@ -1186,12 +1387,15 @@ async def wiki_admin_and_meta(
         )
         import datetime
         dt = datetime.datetime.fromtimestamp(t_res).strftime('%Y-%m-%d %H:%M:%S') if not t_err and t_res else "unknown"
-        return (
+        res_str = (
             f"--- Wiki System Information ---\n"
             f"  API Version: {v_res if not v_err else 'error'}\n"
             f"  DokuWiki Release: {w_res if not w_err else 'error'}\n"
             f"  Server Time: {dt} (Timestamp: {t_res if not t_err else 'error'})"
         )
+        if not v_err and not w_err:
+            system_meta_cache["system_info"] = res_str
+        return res_str
 
     elif action == AdminMetaAction.logoff:
         res, err = await client.logoff()
