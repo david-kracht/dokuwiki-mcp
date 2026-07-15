@@ -8,6 +8,7 @@ Design contract for agents and tooling:
 - Errors are returned as `RPCError` objects.
 """
 import re
+import time
 import asyncio
 import subprocess
 import tempfile
@@ -25,6 +26,7 @@ from mcp.server.fastmcp import Context, FastMCP
 from mcp.types import PromptMessage, TextContent
 
 from .config import get_settings
+from .telemetry import is_telemetry_enabled, reset_call_telemetry, log_trajectory_step, trace_mcp_tool_execution
 
 from .client import (
     DokuWikiClient,
@@ -136,10 +138,17 @@ def _format_pretty_metrics(sess_id: str, current_tool: str, current_action: str,
     lines.append("=" * len(header))
     return "\n".join(lines)
 
+_CALL_START_TIMES: Dict[str, float] = {}
+
 def _log_tool_invocation(tool_name: str, action: str, params: dict, ctx: Optional[Context] = None):
     session_id = get_session_id(ctx) if ctx else None
     sess_key = session_id or "default_session"
     
+    # Track per-call start time for telemetry
+    if is_telemetry_enabled():
+        reset_call_telemetry()
+        _CALL_START_TIMES[sess_key] = time.perf_counter()
+
     # Increment usage frequency
     _SESSION_TOOL_METRICS[sess_key][tool_name] += 1
     if action:
@@ -411,6 +420,22 @@ def get_client(ctx: Context = None) -> DokuWikiClient:
     return DokuWikiClient()
 
 def _unwrap(result: Any, err: Optional[RPCError], tool_name: str = "", action: str = "", tool_params: dict = None, ctx: Context = None) -> Any:
+    session_id = get_session_id(ctx) if ctx else None
+    sess_key = session_id or "default_session"
+
+    if is_telemetry_enabled():
+        t0 = _CALL_START_TIMES.get(sess_key, time.perf_counter())
+        total_duration = time.perf_counter() - t0
+        log_trajectory_step(
+            session_id=sess_key,
+            tool_name=tool_name,
+            action=action,
+            input_args=tool_params or {},
+            result_obj=result,
+            error=err,
+            total_duration_sec=total_duration
+        )
+
     if err:
         err_msg = f"RPCError (Code {err.code}): {err.message}\n→ Agent Hint: {err.actionable_hint}"
         _log_error_trace_stack(tool_name=tool_name, action=action, tool_params=tool_params or {}, err=err, error_msg=err_msg, ctx=ctx)
@@ -436,6 +461,8 @@ _STATEFUL_DRAFTS = {}
 
 def get_session_id(ctx: Context) -> Optional[str]:
     if ctx:
+        if getattr(ctx, "session_id", None):
+            return ctx.session_id
         try:
             request_context = ctx.request_context
             request = getattr(request_context, "request", None)
@@ -704,6 +731,7 @@ class SearchAndExploreAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_search_and_explore", action="")
 @common_context
 async def wiki_search_and_explore(
     action: Annotated[
@@ -895,6 +923,7 @@ class ReadContentAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_read_content", action="")
 @common_context
 async def wiki_read_content(
     action: Annotated[
@@ -1089,6 +1118,7 @@ class WriteModifyAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_write_and_modify", action="")
 @common_context
 async def wiki_write_and_modify(
     action: Annotated[
@@ -1318,6 +1348,7 @@ class AdminMetaAction(str, enum.Enum):
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_admin_and_meta", action="")
 @common_context
 async def wiki_admin_and_meta(
     action: Annotated[
@@ -1422,6 +1453,7 @@ async def wiki_admin_and_meta(
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_raw_proxy", action="")
 @common_context
 async def wiki_raw_proxy(
     method: Annotated[str, Field(description="Raw JSON-RPC API method name (e.g. 'core.getPageInfo'). Read 'dokuwiki://raw_api_spec' for method list. ULTIMA RATIO: Prefer macro-tools first!")],
@@ -1514,6 +1546,7 @@ async def _execute_single_batch_task(task: BatchTaskItem, ctx: Context) -> Tuple
         "openWorldHint": True,
     }
 )
+@trace_mcp_tool_execution(tool_name="wiki_batch_execute", action="")
 @common_context
 async def wiki_batch_execute(
     tasks: Annotated[List[BatchTaskItem], Field(description="List of task items to execute in batch")],

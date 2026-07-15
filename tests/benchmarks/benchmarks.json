@@ -1,0 +1,281 @@
+{
+  "description": "Expanded Golden Dataset Benchmark Suite (30 Tasks) for DokuWiki MCP Server Evaluation",
+  "version": "2.0",
+  "tasks": [
+    {
+      "id": "search_01_keycloak",
+      "category": "read_search",
+      "prompt": "Finde alle Seiten im Wiki, die Informationen zu Keycloak enthalten. Gib mir eine kurze Zusammenfassung der gefundenen Seiten-IDs.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_contain_pages": ["wiki:welcome"]
+      }
+    },
+    {
+      "id": "search_02_exclusion",
+      "category": "read_search",
+      "prompt": "Suche nach 'DokuWiki' im gesamten Wiki, aber schließe den Namespace 'drafts' explizit aus.",
+      "expected_state_checks": {
+        "type": "search_assertion",
+        "excluded_namespaces": ["drafts"]
+      }
+    },
+    {
+      "id": "search_03_structure_toc",
+      "category": "read_search",
+      "prompt": "Zeige mir nur die Überschriften-Struktur (TOC) der Seite 'wiki:welcome', ohne den gesamten Fließtext zu laden.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "get_structure"
+      }
+    },
+    {
+      "id": "search_04_regex_filter",
+      "category": "read_search",
+      "prompt": "Durchsuche die Seite 'wiki:welcome' nach allen Zeilen, die das Wort 'benchmark' oder 'test' enthalten.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "regex_pattern": "(?i)(benchmark|test)"
+      }
+    },
+    {
+      "id": "search_05_namespace_list",
+      "category": "read_search",
+      "prompt": "Listet alle Seiten auf, die sich direkt im Namespace 'wiki' befinden.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "list"
+      }
+    },
+    {
+      "id": "search_06_recent_changes",
+      "category": "read_search",
+      "prompt": "Zeige mir die kürzlich geänderten Seiten im Wiki seit dem UNIX-Zeitstempel 0.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "recent_changes"
+      }
+    },
+    {
+      "id": "search_07_media_search",
+      "category": "read_search",
+      "prompt": "Suche nach Medien-Dateien und Anhängen im Namespace 'wiki'.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "list"
+      }
+    },
+    {
+      "id": "search_08_extract_insights",
+      "category": "read_search",
+      "prompt": "Extrahiere die wichtigsten Schlüsselwörter (TF-IDF Keyphrases) der Seite 'wiki:welcome'.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "extract_insights"
+      }
+    },
+    {
+      "id": "search_09_page_links",
+      "category": "read_search",
+      "prompt": "Hole alle internen und externen Links, die auf der Seite 'wiki:welcome' enthalten sind.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "get_links"
+      }
+    },
+    {
+      "id": "search_10_media_read",
+      "category": "read_search",
+      "prompt": "Rufe die Metadaten und Eigenschaften der Mediendatei 'wiki:dokuwiki-128.png' ab.",
+      "expected_state_checks": {
+        "type": "read_assertion",
+        "must_call_action": "read_media"
+      }
+    },
+    {
+      "id": "author_01_create_page",
+      "category": "authoring",
+      "prompt": "Erstelle eine neue Dokumentationsseite unter 'docs:architecture' mit der Überschrift '= Architektur =' und dem Text 'Dies ist ein Testentwurf.'",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/architecture.txt",
+        "must_contain": ["Architektur", "Testentwurf"]
+      }
+    },
+    {
+      "id": "author_02_section_edit",
+      "category": "authoring",
+      "prompt": "Ergänze in der Seite 'docs:architecture' unter der Überschrift den neuen Satz 'Abschnitt 2 wurde agentisch aktualisiert.'",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/architecture.txt",
+        "must_contain": ["agentisch aktualisiert"]
+      }
+    },
+    {
+      "id": "author_03_two_phase_commit",
+      "category": "authoring",
+      "prompt": "Erstelle erst eine Vorschau (Prepare Write) für die Aktualisierung der Seite 'docs:release_notes' und speichere (Commit) die Änderung anschließend final ab.",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/release_notes.txt"
+      }
+    },
+    {
+      "id": "author_04_modify_section",
+      "category": "authoring",
+      "prompt": "Bearbeite gezielt Abschnitt 1 der Seite 'docs:architecture' und trage dort 'Spezifischer Abschnittsinhalt' ein.",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/architecture.txt",
+        "must_contain": ["Spezifischer Abschnittsinhalt"]
+      }
+    },
+    {
+      "id": "author_05_rollback_write",
+      "category": "authoring",
+      "prompt": "Starte eine Staged Transaction (Prepare Write) für 'docs:draft_page', verwirf (Rollback) die Transaktion jedoch direkt wieder.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["prepare_write", "rollback"]
+      }
+    },
+    {
+      "id": "author_06_save_media",
+      "category": "authoring",
+      "prompt": "Lade ein Bild als Base64-String unter dem Medien-Namen 'wiki:logo_test.png' im Wiki hoch.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["save_media"]
+      }
+    },
+    {
+      "id": "author_07_lock_page",
+      "category": "authoring",
+      "prompt": "Setze eine Sperre (Edit Lock) für die Bearbeitung der Seite 'docs:architecture'.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["lock"]
+      }
+    },
+    {
+      "id": "author_08_unlock_page",
+      "category": "authoring",
+      "prompt": "Gib die Sperre (Unlock) der Seite 'docs:architecture' wieder frei.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["unlock"]
+      }
+    },
+    {
+      "id": "author_09_delete_media",
+      "category": "authoring",
+      "prompt": "Lösche den Medien-Anhang 'wiki:logo_test.png' aus dem Wiki.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["delete_media"]
+      }
+    },
+    {
+      "id": "author_10_append_text",
+      "category": "authoring",
+      "prompt": "Hänge an das Ende der Seite 'docs:architecture' die Zeile 'Zusätzlicher Anhang' an.",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/architecture.txt",
+        "must_contain": ["Zusätzlicher Anhang"]
+      }
+    },
+    {
+      "id": "refactor_01_tagging",
+      "category": "refactoring",
+      "prompt": "Füge am Ende der Seite 'docs:architecture' die Tags 'production' und 'v1' im DokuWiki-Tag-Format {{tag>production v1}} hinzu.",
+      "expected_state_checks": {
+        "type": "file_exists",
+        "rel_path": "docs/architecture.txt",
+        "must_contain": ["{{tag>", "production", "v1}}"]
+      }
+    },
+    {
+      "id": "refactor_02_clean_draft",
+      "category": "refactoring",
+      "prompt": "Lösche den temporären Entwurf auf der Seite 'docs:architecture', indem du den Inhalt leerst oder die Seite entfernst.",
+      "expected_state_checks": {
+        "type": "file_deleted_or_empty",
+        "rel_path": "docs/architecture.txt"
+      }
+    },
+    {
+      "id": "refactor_03_apply_diff_patch",
+      "category": "refactoring",
+      "prompt": "Wende einen Unified Diff Patch auf die Seite 'docs:architecture' an, um alte Begriffe zu korrigieren.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["patch_page"]
+      }
+    },
+    {
+      "id": "refactor_04_clean_media_archive",
+      "category": "refactoring",
+      "prompt": "Bereinige veraltete Grafiken im Namespace 'archive' und entferne alte Testbilder.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["delete_media"]
+      }
+    },
+    {
+      "id": "refactor_05_reorganize_namespace",
+      "category": "refactoring",
+      "prompt": "Bewege oder verschiebe die Inhalte der Seite 'playground:temp' auf die finale Seite 'docs:guide'.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["save_page", "delete_page"]
+      }
+    },
+    {
+      "id": "admin_01_acl_check",
+      "category": "admin_meta",
+      "prompt": "Prüfe die Rechte (ACL Check) für die Seite 'wiki:welcome' um festzustellen, ob Schreibrechte vorliegen.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["acl_check"]
+      }
+    },
+    {
+      "id": "admin_02_get_version",
+      "category": "admin_meta",
+      "prompt": "Frage die aktuelle DokuWiki Version und die API-Versionsnummer ab.",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["system_info"]
+      }
+    },
+    {
+      "id": "admin_03_who_am_i",
+      "category": "admin_meta",
+      "prompt": "Frage die Identität des aktuell angemeldeten Benutzers ab (WhoAmI).",
+      "expected_state_checks": {
+        "type": "trajectory_assertion",
+        "must_contain_actions": ["who_ami"]
+      }
+    },
+    {
+      "id": "batch_01_multi_search",
+      "category": "multi_action",
+      "prompt": "Führe eine Batch-Suche für die beiden Begriffe 'Keycloak' und 'DokuWiki' in einem einzigen Aufruf durch.",
+      "expected_state_checks": {
+        "type": "batch_assertion",
+        "min_batch_size": 2
+      }
+    },
+    {
+      "id": "batch_02_multi_read",
+      "category": "multi_action",
+      "prompt": "Lies in einer einzigen Batch-Transaktion zeitgleich die Struktur von 'wiki:welcome' und 'wiki:syntax' aus.",
+      "expected_state_checks": {
+        "type": "batch_assertion",
+        "min_batch_size": 2
+      }
+    }
+  ]
+}

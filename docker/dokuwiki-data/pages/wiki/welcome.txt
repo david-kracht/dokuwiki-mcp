@@ -1,0 +1,3 @@
+====== Welcome to DokuWiki ======
+This is a benchmark fixture page.
+Tags: {{tag>benchmark test docs}}

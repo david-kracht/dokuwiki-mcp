@@ -108,3 +108,104 @@ Die folgende Tabelle gibt den aktuellen Reifegrad und die Abdeckung der Architek
 | **Tracing & Infrastructure** | **Session Metrics & Traceability** | ✅ Implementiert | `_log_tool_invocation`, `_log_tool_error`, `_log_error_trace_stack` | Request-ID Tracing, strukturierte JSON Audit Logs & Error Metrics | - |
 | | **6-Tier Domain Caching & Invalidation** | ✅ Implementiert | `cachetools.TTLCache` in `server.py` | Granulare 6-Tier Caches (Page/Media List, Info, Content + System Meta) & Hit Metrics Summary Logger | - |
 
+---
+
+## 🧪 Benchmark, Telemetrie & Live-LLM Evaluation Suite
+
+Das DokuWiki-MCP-Repository verfügt über ein integriertes, 3-schichtiges Telemetrie- und Evaluations-Framework (`scripts/run_mcp_eval.py` & `tests/benchmarks/verifier.py`), das sowohl isolierte Performance-Messungen als auch autonome Live-Agenten-Interaktionen quantitativ bewertet.
+
+### Architektur der Evaluations-Stufen
+
+```mermaid
+flowchart TD
+    subgraph Stufe 1 [Stufe 1: Deterministisches Local Harness]
+        A1[Benchmark Task Definition: benchmarks.json] --> A2[Internal Dispatcher & MockContext]
+        A2 --> A3[Pydantic MCP Server Function Execution]
+    end
+
+    subgraph Stufe 2 [Stufe 2: Live-LLM Multi-Turn Trajectory Agent]
+        B1[Prompt & Function Declarations] --> B2[Google Gemini 3.1 Flash Lite / Live Model]
+        B2 -->|Function Call Payload| B3[MCP Server Tools]
+        B3 -->|Tool Output Response| B2
+    end
+
+    A3 --> C[Deterministic State Verifier & Trajectory Logger]
+    B3 --> C
+    C --> D1[JSONL Trajectories logs/trajectories/]
+    C --> D2[Summary Markdown Report logs/eval_reports/*.md]
+    C --> D3[Interaktives HTML Dashboard logs/eval_reports/*.html]
+```
+
+### Gemessene KPIs & Telemetrie-Dimensionen
+
+* **Layer B (Agent Level):**
+  * **`Pass@1` Success Rate:** Anteil der Aufgaben, deren Zustand nach Ausführung deterministisch korrekt auf der Festplatte/DokuWiki validiert wurde (Dateiexistenz, Inhalt, Tagging, Soft-Deletes).
+  * **`N_turns` (Trajectory Length):** Anzahl der Interaktions-Schleifen/Tool-Calls bis zum Erreichen der Lösung.
+  * **`T_dto` (Response Tokens):** Token-Verbrauch der modellgenerierten Funktionsaufrufe.
+* **Layer A (Pure MCP Overhead):**
+  * **`L_mcp` (Server Processing Time):** Durch das MCP-Server-Framework isolierte Rechenzeit in Millisekunden (Parsing, Telemetrie, Schema-Validierung, Caching).
+  * **`C_tokens` (Token Compression Factor):** Verhätnis von Rohdaten zu verdichtetem Markdown Output (LLM-Kontextfenster-Einsparung).
+  * **`E_schema` (Schema Validation Errors):** Anzahl vom LLM gesendeter ungültiger Parameter, die serverseitig abgefangen/korrigiert wurden.
+* **Layer C (Subsystem Latency):**
+  * **`L_wiki` (Backend Execution Time):** Dauer der PHP XML-RPC API Netzwerk- und Verarbeitungszeit im DokuWiki-Container.
+
+---
+
+## 🛠️ How To: Benchmark & Test Tools verwenden
+
+### Prerequisites & Setup
+
+Stelle sicher, dass der DokuWiki-Docker-Container läuft und das Python Virtual Environment vorbereitet ist:
+
+```bash
+# 1. Docker Services starten
+docker compose up -d --build
+
+# 2. Virtual Environment aktivieren
+source .venv/bin/activate
+```
+
+Stelle sicher, dass deine `.env` Datei den `GEMINI_API_KEY` und Telemetrie-Variablen enthält:
+
+```env
+MCP_ENABLE_TELEMETRY=true
+MCP_LOG_LEVEL=INFO
+GEMINI_API_KEY=dein_google_gemini_api_key
+```
+
+### 1. Stufe 1: Deterministischen Benchmark Harness ausführen (Schnell-Validierung)
+
+Misst isoliert die serverseitige Logik, Caching-Effizienz und Ausführungszeiten aller 30 Benchmark-Tasks ohne externe API-Aufrufe:
+
+```bash
+./.venv/bin/python scripts/run_mcp_eval.py
+```
+
+### 2. Stufe 2: Live LLM Agent Evaluation ausführen (Gemini Live Mode)
+
+Führt alle 30 Tasks autonom gegen die Google Gemini API aus, zeichnet Multi-Turn Trajektorien auf und prüft das echte Funktionsaufrufs-Verhalten:
+
+```bash
+# Ausführung aller 30 Tasks mit unbegrenztem Kontingent (Gemini 3.1 Flash Lite)
+./.venv/bin/python scripts/run_mcp_eval.py --live --model gemini-3.1-flash-lite
+
+# Schnelle Stichprobe (z. B. nur die ersten 5 Tasks)
+./.venv/bin/python scripts/run_mcp_eval.py --live --model gemini-3.1-flash-lite --limit 5
+```
+
+### 3. Auswertung der Ergebnisse & Dashboard ansehen
+
+Nach jedem Durchlauf werden im Verzeichnis `logs/eval_reports/` zwei Auswertungs-Dateien erzeugt:
+
+1. **Markdown Zusammenfassungsbericht (`eval_report_YYYYMMDD_HHMMSS.md`):**  
+   Tabellarische Übersicht aller KPIs (`Pass@1`, `L_mcp`, `L_wiki`, `C_tokens`, `E_schema`) und Status pro Task ID.
+2. **Interaktives HTML Dashboard (`dashboard_YYYYMMDD_HHMMSS.html`):**  
+   Visualisiertes Dashboard im Dark-Design mit:
+   * Dynamischen 3-Sektoren-Tooltips (Was ist das?, Ziel/Bewertung, ⚙️ Wie im MCP beeinflussen?) für alle Karten, Tabellenköpfe und Tabellenzeilen.
+   * Interaktiver JavaScript-Spaltensortierung (Klick auf `Task ID`, `Category`, `Status`, `Turns`, `MCP Latency`, `Wiki Latency`, `Tokens`, `Compression`).
+
+```bash
+# Letztes generiertes HTML Dashboard im Browser öffnen (Linux/Ubuntu)
+xdg-open logs/eval_reports/dashboard_*.html
+```
+
